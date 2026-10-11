@@ -1,5 +1,10 @@
 /// <reference types="astro/client" />
 
+// Runtime type aliases for Wrangler's generated bindings. Keep the Workers
+// runtime out of the global DOM scope: Astro also typechecks browser scripts.
+type D1Database = import('@cloudflare/workers-types').D1Database;
+type Fetcher = import('@cloudflare/workers-types').Fetcher;
+
 interface CloudflareEnv {
 	DB: import("@cloudflare/workers-types").D1Database;
 	BLIZZARD_CLIENT_ID: string;
@@ -20,8 +25,6 @@ interface CloudflareEnv {
 	ROSTER_BACKFILL_BATCH_SIZE?: string;
 	TRINKET_CACHE_WARM_BATCH_SIZE?: string;
 }
-
-interface Env extends CloudflareEnv {}
 
 declare module 'cloudflare:workers' {
 	export const env: CloudflareEnv;

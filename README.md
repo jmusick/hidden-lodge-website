@@ -1,5 +1,10 @@
 # The Hidden Lodge Website
 
+Repository: [jmusick/hidden-lodge-website](https://github.com/jmusick/hidden-lodge-website). Local folder: `C:/Users/JD/source/hidden-lodge-website`.
+
+This README owns setup and usage; [AGENTS.md](AGENTS.md) owns coding conventions. Companion projects: [addon](https://github.com/jmusick/hidden-lodge-addon/blob/master/README.md) · [desktop](https://github.com/jmusick/hidden-lodge-desktop/blob/master/README.md) · [sim](https://github.com/jmusick/hidden-lodge-sim/blob/master/README.md). Creative masters and provenance live in `C:/Users/JD/projects/hidden-lodge/README.md`. The Obsidian project note links to these files; implementation and operational instructions belong here.
+
+
 Official guild website for The Hidden Lodge, a semi-hardcore AOTC/Mythic raiding guild on Illidan (US).
 
 ## Overview
@@ -362,13 +367,13 @@ curl -sS \
 - `logReportBatchSize`: max new Warcraft Logs reports the raid-log activity sync processes this run (defaults to `6`).
 - `skipRaiders=1` / `skipLogs=1`: skip the legs handled by `/api/cron/refresh-raiders` / `/api/cron/refresh-logs`.
 
-Production schedule (cron-job.org, 30s request timeout): `/api/cron/refresh?skipRaiders=1&skipLogs=1` and `/api/cron/refresh-raiders` every 15 minutes, `/api/cron/refresh-logs` on its own job. Every leg stops starting new work partway through its run and carries the rest over, and every Blizzard / Raider.IO / Warcraft Logs request is capped at 8s, so each job stays under the timeout.
+Production scheduling uses the Worker’s native cron triggers: roster at minutes 0/15/30/45, raiders at 5/20/35/50, and logs at minute 10 every 2 hours (UTC). Shared refresh functions keep their bounded budgets and 8s upstream timeouts. See [deployment and rollback](docs/deployment.md).
 
 You can also set `TRINKET_CACHE_WARM_BATCH_SIZE`, `ROSTER_DETAIL_BATCH_SIZE`, or `ROSTER_BACKFILL_BATCH_SIZE` in runtime env as defaults for the query params above.
 
 ### Desktop App API
 
-Machine endpoints for the `HiddenLodgeDesktop` companion app (separate repo). Require `X-Desktop-Key` matching `DESKTOP_API_KEY`, not session auth.
+Machine endpoints for the `hidden-lodge-desktop` companion app (separate repo). Require `X-Desktop-Key` matching `DESKTOP_API_KEY`, not session auth.
 
 | Endpoint | Method | Description |
 |---|---|---|
@@ -386,7 +391,7 @@ Machine endpoints for the `HiddenLodgeDesktop` companion app (separate repo). Re
 
 ### Local Dev Cron Refresher
 
-Use the built-in local refresher script when running dev locally (for cases where cron-job.org cannot reach localhost).
+Use the built-in local HTTP refresher for development. Native scheduled handlers can also be exercised through Wrangler’s `/cdn-cgi/local/scheduled` endpoint.
 
 1. Ensure your local dev env has `CRON_SECRET` set (for Astro/Cloudflare runtime auth).
 2. Optionally set `LOCAL_CRON_SECRET` for the refresher process (if omitted, the script falls back to `CRON_SECRET` from process env, then `.dev.vars`).
@@ -477,7 +482,7 @@ These handlers remain in the codebase as retired stubs and currently return HTTP
 | `raid_attendance_reports` and related attendance tables (from `migrations/0045`–`0048`, `0050`, `0064`) | Season 1 Warcraft Logs attendance/kill-presence/death data *(feature disabled; superseded by the `death_analysis_*` tables for Season 2)* |
 | `death_analysis_reports` / `death_analysis_stats` / `death_analysis_night_overrides` | Season 2 death analysis: in-window Venomous Abyss reports, per-character death stats per report, and officer-chosen report per night (last 90 days) |
 | `mechanics_analysis_reports` / `mechanics_analysis_stats` | Mechanics analysis: per report + mechanic sync cursor, and per-character mechanic counts/role for each canonical report |
-| `bench_parses` / `bench_role_overrides` / `bench_mechanic_roles` / `bench_flags` | Bench scoring: cached per-role WCL median parse, officer role overrides, WCL-spec-derived melee/ranged/tank/healer per character, and officer melee/ranged override + Absent/RL toggles (see [Raid Comp](#raid-comp)) |
+| `bench_parses` / `bench_role_overrides` / `bench_mechanic_roles` / `bench_flags` | Bench scoring: cached per-role WCL median parse, officer role overrides, WCL-spec-derived melee/ranged/tank/healer per character, and officer melee/ranged override + Absent/RL toggles (see [Raid Composition](#raid-composition)) |
 | `raid_comp_settings` / `raid_comp_assignments` / `raid_comp_utility_minimums` | Raid Comp: singleton tank/healer/DPS quotas + weight/scale, the shared board's current group assignments, and officer-set minimum provider counts per utility item |
 | `pull_score_pulls` / `pull_score_reports` | Parse Analysis: one row per raider per qualifying pull (DPS/HPS amount and role median for display; `pull_score` is WCL's `bracketPercent`, null except on ranked kills), and the per-report fights/rankings sync cursor (see [Parse Analysis](#parse-analysis)) |
 
@@ -570,10 +575,9 @@ For existing production databases, apply only newly introduced migrations instea
 | `BLIZZARD_REDIRECT_URI` | Yes | OAuth callback URL |
 | `WCL_CLIENT_ID` | No | Warcraft Logs OAuth client ID (enables Recent Logs uploader and publish time metadata) |
 | `WCL_CLIENT_SECRET` | No | Warcraft Logs OAuth client secret (enables Recent Logs uploader and publish time metadata) |
-| `CRON_SECRET` | Yes | Shared secret for roster refresh requests |
+| `CRON_SECRET` | For HTTP maintenance | Shared secret for manual/local refresh requests; native cron does not need it |
 | `SIM_RUNNER_KEY` | Yes (for sim APIs) | Shared secret used by `/api/sim/*` machine endpoints via `X-Sim-Runner-Key` |
 | `DESKTOP_API_KEY` | Yes (for desktop API) | Shared secret used by `/api/desktop/*` endpoints via `X-Desktop-Key` |
-| `SESSION_SECRET` | Yes | Session signing and validation secret |
 | `RAIDER_IO_ACCESS_KEY` | No | Optional Raider.IO API access key |
 | `ROSTER_DETAIL_BATCH_SIZE` | No | Default roster detail sync batch size (overridable per-run via `detailBatchSize` on `/api/cron/refresh`) |
 | `ROSTER_BACKFILL_BATCH_SIZE` | No | Default roster backfill batch size (overridable per-run via `backfillBatchSize` on `/api/cron/refresh`) |
@@ -581,12 +585,14 @@ For existing production databases, apply only newly introduced migrations instea
 
 ## Deployment
 
-Deploy as a Cloudflare Pages project.
+Deploy as the `hidden-lodge-website` Cloudflare Worker.
 
-- Build command: `npm run build`
-- Output directory: `dist`
-- Node version: `22.12.0` or newer per `package.json`
-- D1 binding name: `DB`
+- Build: `npm run build`; deploy: `npm run deploy` (Wrangler follows Astro’s generated config).
+- Entrypoint: `src/worker.ts`; assets: `dist/client`.
+- GitHub: `jmusick/hidden-lodge-website`, production branch `main`.
+- Node: `22.12.0` or newer; existing D1 binding: `DB`.
+- Native cron and cutover/rollback instructions: [docs/deployment.md](docs/deployment.md).
+- Audit reconciliation and issue index: [docs/BACKLOG.md](docs/BACKLOG.md).
 
 ## Versioning Workflow
 
@@ -642,7 +648,7 @@ When a tag matching `v*` is pushed:
 ## Notes
 
 - `/admin/*` routes are protected by middleware and require an officer-level guild rank or higher.
-- The `/api/cron/*` endpoints are called by an external scheduler (cron-job.org). The site deploys as a Cloudflare Pages project, which has no cron triggers, so there is no `[triggers] crons` entry in `wrangler.toml` and no `scheduled()` handler.
+- Native cron triggers run the shared refresh work directly. `/api/cron/*` remains available for secret-authenticated manual/local runs; see [deployment.md](docs/deployment.md).
 - External guild links (Raider.IO, Warcraft Logs, WoWProgress, YouTube) are defined in `src/data/externalLinks.ts` and render as favicon icon links in the main nav.
 - `/links` is sourced live from the Tagstash public API (bookmarks tagged `wow` under profile `JD`, `src/lib/bookmarks.ts`), cached 10 minutes at the edge. There is no admin CRUD or D1 table for it in this repo — links are curated in Tagstash itself.
 - `/articles` and the homepage's "Latest Articles" feed are sourced live from a public Orboro.net API (`src/lib/orboro-posts.ts`, posts tagged World of Warcraft), cached 10 minutes at the edge, with a small credit link back to orboro.net on both pages. `/articles/:slug` 301-redirects to the matching post on orboro.net rather than rendering content locally.

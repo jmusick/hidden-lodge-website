@@ -1,7 +1,23 @@
-name = "hiddenlodgewebsite"
+name = "hidden-lodge-website"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
-pages_build_output_dir = "dist"
+main = "src/worker.ts"
+workers_dev = true
+preview_urls = false
+routes = [{ pattern = "hidden-lodge.com/*", zone_name = "hidden-lodge.com" }]
+
+[assets]
+binding = "ASSETS"
+
+[triggers]
+# UTC; stagger each leg to avoid simultaneous Blizzard/WCL load.
+crons = ["0,15,30,45 * * * *", "5,20,35,50 * * * *", "10 */2 * * *"]
+
+[observability]
+enabled = true
+
+[observability.traces]
+enabled = true
 
 [vars]
 WOWSIM_APP_BASE_URL = "http://lodgesim.tplinkdns.com:5050"

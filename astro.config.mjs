@@ -8,14 +8,9 @@ import { fileURLToPath } from 'node:url';
 // https://astro.build/config
 export default defineConfig({
 	output: 'server',
-	build: {
-		client: './',
-		server: './_worker.js',
-	},
-	adapter: cloudflare(/** @type {any} */({
+	adapter: cloudflare({
 		imageService: 'compile',
-		platformProxy: { enabled: true },
-	})),
+	}),
 	session: {
 		driver: sessionDrivers.lruCache(),
 	},

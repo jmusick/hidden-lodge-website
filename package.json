@@ -1,5 +1,5 @@
 {
-  "name": "hiddenlodgewebsite",
+  "name": "hidden-lodge-website",
   "type": "module",
   "version": "2.36.3",
   "engines": {
@@ -8,7 +8,10 @@
   "scripts": {
     "dev": "node scripts/dev-with-cron.mjs",
     "dev:site": "astro dev",
-    "build": "astro build && node scripts/patch-wrangler-config.mjs",
+    "build": "astro build",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types --include-runtime false",
+    "test:cron": "node scripts/test-scheduled-refresh.mjs",
     "preview": "astro preview",
     "astro": "astro",
     "typecheck": "astro check",

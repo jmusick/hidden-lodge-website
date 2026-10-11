@@ -9,6 +9,7 @@ node_modules/
 
 # local Cloudflare/Wrangler state
 .wrangler/
+.tmp/
 .migration-backups/
 
 # logs
@@ -36,5 +37,4 @@ pnpm-debug.log*
 # local agent/assistant settings
 .claude/
 
-# Local working checklist (audit findings) — not a deliverable
-TODO.md
+# Local audit backup is retained in .tmp; maintained backlog lives in docs/BACKLOG.md.

@@ -1,6 +1,6 @@
 # Design system migration — execution spec
 
-Companion to the `TODO.md` § "Design system pass" audit. **That document explains *why*. This one
+Companion to the [archived design audit](docs/audits/2026-09-source-review.md). **That document explains *why*. This one
 says *what to type*.** If the two disagree, this one wins.
 
 Written to be executed without further design judgment. Every value below is resolved — there are
@@ -235,7 +235,7 @@ Then delete `:global(h1), :global(h2), :global(h3)` from `Layout.astro:324` — 
 
 **This changes the 20 pages that render a bare `<h1>`** (they currently fall through to the UA
 default 2em/36px, now 2.2rem/39.6px). That is the point of the item. While here, also fix the
-homepage's missing `<h1>` — `TODO.md` security item 4.
+homepage's missing `<h1>` — the archived security audit item 4 (completed).
 
 ---
 
@@ -648,7 +648,7 @@ Vault Hidden Lodge notes per the usual docs-upkeep rule.
 
 ## 11. Progress
 
-Tick as tranches land.
+Tick as tranches land. As of 2026-10-11, tranche 4 is partially adopted; see [the reconciled backlog](docs/BACKLOG.md) and issue #24 for remaining work.
 
 - [x] **1** — Tokens into `Layout.astro:287` + admin override (§1). *S, zero risk*
 - [x] **2** — `src/styles/base.css`, type scale, global focus (§2). *M*
