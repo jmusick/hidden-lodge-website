@@ -43,7 +43,7 @@ Started 2026-09-20. Audit found ~15,000 lines of CSS across 41 per-page `<style>
 - Reusable assets and provenance:
   - `C:\Users\JD\projects\hidden-lodge`
 - Project documentation:
-  - `C:\Users\JD\Vault\projects\hidden-lodge`
+  - `C:\Users\JD\Vault\Projects\Hidden Lodge`
 
 ## Common commands
 

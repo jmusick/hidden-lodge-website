@@ -149,7 +149,7 @@ http://localhost:4321
 ## Tech Stack
 
 - Astro 6 SSR
-- Cloudflare Pages hosting
+- Cloudflare Workers hosting with native Cron Triggers
 - Cloudflare D1 for persistent data
 - Blizzard Battle.net OAuth2 and WoW APIs
 - TypeScript
