@@ -30,7 +30,7 @@ P1 = high impact; P2 = normal; P3 = lower priority/deferred. No evidence support
 - Design audit breakpoint consolidation: superseded by the settled DESIGN-SYSTEM.md decision to preserve nav breakpoints.
 - Pull Score/Parse Analysis plan: shipped and later revised to WCL bracketPercent on kills only. Current README, AGENTS and code own the formula; the original relative-to-role-median scoring plan is obsolete. No implementation issues recreated.
 - Companion API/Season 2 loot allowlist audit: the tracked raid allowlist fix shipped. Updating that allowlist for a future season remains an operational convention in AGENTS, not an unresolved past bug.
-- Hosting rename and native cron: handled in this migration; see [deployment.md](deployment.md) for cutover evidence and any outstanding operational step.
+- Hosting rename and native cron: complete; cron-job.org jobs retired 2026-10-13. See [deployment.md](deployment.md) for cutover and native cron evidence.
 
 ## Source records
 
