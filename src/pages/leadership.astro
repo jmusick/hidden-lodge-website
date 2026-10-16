@@ -16,6 +16,12 @@ const leaders = [
     bio: 'Calls mechanics with the calm precision of a flight controller, then out-DPSes your excuses with a storm in each hand.'
   },
   {
+    name: 'Kivara',
+    title: 'Recruitment Officer',
+    portrait: '/images/leadership/kivara.webp',
+    bio: 'Hunter, turtle wrangler, and the person you trust with the boss eggs. With Pancake and Waffles at her side, Kivara handles recruitment and mechanics without cracking under pressure.'
+  },
+  {
     name: 'Nic',
     title: 'Guild Master',
     portrait: '/images/leadership/nic.webp',
@@ -62,7 +68,7 @@ const getInitials = (name: string) =>
     {
       leaders.map((leader) => (
         <article class="card">
-          <div class="portrait" aria-hidden="true">
+          <div class="portrait">
             {
               leader.portrait ? (
                 <button
