@@ -37,9 +37,9 @@
     "db:seed:test-notes": "wrangler d1 execute hidden-lodge-db --local --file=db-seeds/seed_test_notes.sql"
   },
   "dependencies": {
-    "@astrojs/cloudflare": "^13.7.0",
+    "@astrojs/cloudflare": "^14.4.2",
     "@iconify-json/lucide": "^1.2.121",
-    "astro": "^6.4.8",
+    "astro": "^7.4.2",
     "astro-icon": "^1.1.5"
   },
   "devDependencies": {
