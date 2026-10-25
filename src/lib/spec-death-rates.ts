@@ -11,6 +11,8 @@
 // season (new zone id) or after a big class-balance patch.
 // Snapshot: 2026-09-24.
 
+import { MYTHIC_DIFFICULTY } from './raid-difficulty';
+
 export interface SpecDeathRate {
   className: string;
   specName: string;
@@ -73,6 +75,14 @@ export const SPEC_DEATH_RATES = new Map<number, SpecDeathRate>([
   [253, { className: 'Hunter', specName: 'Beast Mastery', deathRate: 0.1279, deaths: 202_297 }],
 ]);
 
+/**
+ * Same source page with difficulty=5. Empty until someone copies the Mythic
+ * snapshot in; while it's empty, Mythic pulls are adjusted with the Heroic
+ * rates above (the adjustment only uses each spec's rate relative to the
+ * average, which shifts less between difficulties than the raw rates do).
+ */
+export const MYTHIC_SPEC_DEATH_RATES = new Map<number, SpecDeathRate>([]);
+
 function pooledRate(rows: SpecDeathRate[]): number | null {
   let deaths = 0;
   let appearances = 0;
@@ -83,27 +93,43 @@ function pooledRate(rows: SpecDeathRate[]): number | null {
   return appearances > 0 ? deaths / appearances : null;
 }
 
-const ALL_SPECS = [...SPEC_DEATH_RATES.values()];
-/** Deaths per appearance across every spec, i.e. the average raider worldwide. */
-const OVERALL_DEATH_RATE = pooledRate(ALL_SPECS) ?? 1;
-
-const CLASS_DEATH_RATES = new Map<string, number>();
-for (const className of new Set(ALL_SPECS.map((row) => row.className))) {
-  const rate = pooledRate(ALL_SPECS.filter((row) => row.className === className));
-  if (rate !== null) CLASS_DEATH_RATES.set(className.toLowerCase(), rate);
+interface RateTable {
+  bySpec: Map<number, SpecDeathRate>;
+  /** Deaths per appearance across every spec, i.e. the average raider worldwide. */
+  overall: number;
+  byClass: Map<string, number>;
 }
+
+function buildRateTable(bySpec: Map<number, SpecDeathRate>): RateTable {
+  const allSpecs = [...bySpec.values()];
+  const byClass = new Map<string, number>();
+  for (const className of new Set(allSpecs.map((row) => row.className))) {
+    const rate = pooledRate(allSpecs.filter((row) => row.className === className));
+    if (rate !== null) byClass.set(className.toLowerCase(), rate);
+  }
+  return { bySpec, overall: pooledRate(allSpecs) ?? 1, byClass };
+}
+
+const HEROIC_RATES = buildRateTable(SPEC_DEATH_RATES);
+const MYTHIC_RATES = MYTHIC_SPEC_DEATH_RATES.size > 0 ? buildRateTable(MYTHIC_SPEC_DEATH_RATES) : HEROIC_RATES;
+
+/** Whether Mythic pulls have their own snapshot, or are borrowing the Heroic one. */
+export const HAS_MYTHIC_SPEC_DEATH_RATES = MYTHIC_RATES !== HEROIC_RATES;
 
 /**
  * The divisor applied to a raider's death score: (spec rate / overall rate)
- * ^ SPEC_DEATH_ADJUSTMENT_STRENGTH. Falls back to the class's pooled rate
- * when the spec is unknown, and to 1 (no adjustment) when both are.
+ * ^ SPEC_DEATH_ADJUSTMENT_STRENGTH, from the table for the pull's WCL
+ * difficulty (5 = Mythic; anything else, including unsplit rows, = Heroic).
+ * Falls back to the class's pooled rate when the spec is unknown, and to 1
+ * (no adjustment) when both are.
  */
-export function specDeathAdjustment(specId: number | null, className: string): number {
+export function specDeathAdjustment(specId: number | null, className: string, difficulty: number): number {
+  const table = difficulty === MYTHIC_DIFFICULTY ? MYTHIC_RATES : HEROIC_RATES;
   const rate =
-    (specId !== null ? SPEC_DEATH_RATES.get(specId)?.deathRate : undefined) ??
-    CLASS_DEATH_RATES.get(className.trim().toLowerCase());
+    (specId !== null ? table.bySpec.get(specId)?.deathRate : undefined) ??
+    table.byClass.get(className.trim().toLowerCase());
   if (!rate) return 1;
-  return (rate / OVERALL_DEATH_RATE) ** SPEC_DEATH_ADJUSTMENT_STRENGTH;
+  return (rate / table.overall) ** SPEC_DEATH_ADJUSTMENT_STRENGTH;
 }
 
 export function specName(specId: number | null): string | null {

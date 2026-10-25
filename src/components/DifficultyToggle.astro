@@ -1,0 +1,86 @@
+---
+// Heroic / Mythic / Combined switch for the log-analysis tools. Plain links
+// (no client script): each option reloads the page with `?difficulty=`.
+import {
+  DIFFICULTY_SCOPES,
+  DIFFICULTY_SCOPE_LABELS,
+  hrefForScope,
+  type DifficultyScope,
+} from '../lib/raid-difficulty';
+
+interface Props {
+  current: DifficultyScope;
+  /** Options shown but not selectable, with the reason as a tooltip. */
+  disabled?: Partial<Record<DifficultyScope, string>>;
+  /** Options left out entirely (e.g. Combined on a tool where it means nothing). */
+  hide?: DifficultyScope[];
+}
+
+const { current, disabled = {}, hide = [] } = Astro.props;
+const options = DIFFICULTY_SCOPES.filter((scope) => !hide.includes(scope));
+---
+
+<div class="difficulty-toggle" role="group" aria-label="Difficulty">
+  {options.map((scope) =>
+    disabled[scope] ? (
+      <span class="difficulty-option disabled" aria-disabled="true" title={disabled[scope]}>
+        {DIFFICULTY_SCOPE_LABELS[scope]}
+      </span>
+    ) : (
+      <a
+        href={hrefForScope(Astro.url, scope)}
+        class:list={['difficulty-option', { active: scope === current }]}
+        aria-current={scope === current ? 'true' : undefined}
+      >
+        {DIFFICULTY_SCOPE_LABELS[scope]}
+      </a>
+    )
+  )}
+</div>
+
+<style>
+  .difficulty-toggle {
+    display: inline-flex;
+    flex-wrap: wrap;
+  }
+
+  .difficulty-option {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.45rem 0.85rem;
+    border: 1px solid rgba(214, 176, 106, 0.3);
+    color: var(--muted);
+    font-weight: 700;
+    font-size: 0.88rem;
+    text-decoration: none;
+    transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+  }
+
+  .difficulty-option + .difficulty-option {
+    margin-left: -1px;
+  }
+
+  .difficulty-option:first-child {
+    border-radius: 999px 0 0 999px;
+  }
+
+  .difficulty-option:last-child {
+    border-radius: 0 999px 999px 0;
+  }
+
+  a.difficulty-option:hover {
+    color: var(--gold-bright);
+    text-decoration: none;
+  }
+
+  .difficulty-option.active {
+    color: #ffe7b1;
+    border-color: rgba(244, 194, 92, 0.7);
+    background: linear-gradient(180deg, rgba(244, 194, 92, 0.24), rgba(214, 176, 106, 0.2));
+  }
+
+  .difficulty-option.disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+</style>

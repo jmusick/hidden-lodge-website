@@ -14,6 +14,8 @@ import {
   type MechanicRange,
   type MechanicRole,
 } from '../lib/mechanics-analysis';
+import { parseDifficultyScope, scopeDescription } from '../lib/raid-difficulty';
+import DifficultyToggle from '../components/DifficultyToggle.astro';
 import { classColor } from '../lib/wow';
 import { FEATURE_FLAGS } from '../lib/feature-flags';
 
@@ -28,7 +30,8 @@ if (!Astro.locals.isGuildMember) {
 const boss = findBoss(Astro.url.searchParams.get('boss'));
 const range = parseMechanicRange(Astro.url.searchParams.get('range'));
 const role = parseMechanicRole(Astro.url.searchParams.get('role'));
-const boards = await Promise.all(boss.mechanics.map((mechanic) => getMechanicLeaderboard(boss, mechanic, range, role)));
+const scope = parseDifficultyScope(Astro.url.searchParams.get('difficulty'));
+const boards = await Promise.all(boss.mechanics.map((mechanic) => getMechanicLeaderboard(boss, mechanic, range, role, scope)));
 
 const nightFormatter = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' });
 function nightLabel(nightKey: string): string {
@@ -41,6 +44,7 @@ function hrefFor(next: { boss?: string; range?: MechanicRange; role?: MechanicRo
   const nextRole = next.role === undefined ? role : next.role;
   if (nextRange !== 'all') params.set('range', nextRange);
   if (nextRole) params.set('role', nextRole);
+  if (scope !== 'combined') params.set('difficulty', scope);
   return `/mechanics-analysis?${params}`;
 }
 const roleLabels: Record<MechanicRole, string> = { tank: 'Tank', healer: 'Healer', melee: 'Melee', ranged: 'Ranged' };
@@ -66,12 +70,12 @@ const medals = ['gold', 'silver', 'bronze'];
         <h1>Mechanics Analysis</h1>
         <div class="scope-badges" aria-label="Current review scope">
           <span class="scope-badge">Season: Midnight S2</span>
-          <span class="scope-badge">Raid: {DEATH_ANALYSIS_RAID_NAME} (Heroic/Mythic)</span>
+          <span class="scope-badge">Raid: {DEATH_ANALYSIS_RAID_NAME} ({scopeDescription(scope)})</span>
           <span class="scope-badge">Thu/Fri raid nights</span>
           <span class="scope-badge">Last {DEATH_ANALYSIS_WINDOW_DAYS} days</span>
         </div>
         <p class="page-desc">
-          Who is handling the boss mechanics, per boss. Uses the same one-report-per-raid-night logs as Death Analysis, counting every Heroic and Mythic pull.
+          Who is handling the boss mechanics, per boss. Uses the same one-report-per-raid-night logs as Death Analysis, counting every {scopeDescription(scope)} pull.
         </p>
       </div>
     </div>
@@ -89,6 +93,7 @@ const medals = ['gold', 'silver', 'bronze'];
         ))}
       </nav>
       <div class="toggles">
+        <DifficultyToggle current={scope} />
         <div class="range-toggle" role="group" aria-label="Role">
           {roleOptions.map((option) => (
             <a
@@ -169,6 +174,10 @@ const medals = ['gold', 'silver', 'bronze'];
                 ? `No ${roleLabels[board.role].toLowerCase()} players carried ${board.mechanic.unitPlural} in this range.`
                 : board.nightsPending > 0
                 ? `No ${boss.name} data synced yet — ${board.nightsPending} raid night${board.nightsPending === 1 ? ' is' : 's are'} still waiting on the next sync.`
+                : board.nightsAwaitingSplit > 0
+                ? `No ${scopeDescription(scope)} ${boss.name} data yet — ${board.nightsAwaitingSplit} raid night${board.nightsAwaitingSplit === 1 ? ' is' : 's are'} still waiting to be split by difficulty.`
+                : scope !== 'combined'
+                ? `No ${scopeDescription(scope)} ${boss.name} pulls on a counted raid night yet.`
                 : `No ${boss.name} pulls on a counted raid night yet.`}
             </p>
           ) : (
@@ -217,6 +226,12 @@ const medals = ['gold', 'silver', 'bronze'];
                 </div>
               )}
             </>
+          )}
+
+          {board.nightsAwaitingSplit > 0 && (
+            <p class="split-note">
+              {board.nightsAwaitingSplit} raid night{board.nightsAwaitingSplit === 1 ? ' isn’t' : 's aren’t'} split by difficulty yet and {board.nightsAwaitingSplit === 1 ? 'is' : 'are'} left out of this view; {board.nightsAwaitingSplit === 1 ? 'it' : 'they'}’ll appear after the next few syncs.
+            </p>
           )}
 
           {board.range === 'all' && board.reports.length > 0 && (
@@ -602,11 +617,13 @@ const medals = ['gold', 'silver', 'bronze'];
   }
 
   .empty-state,
+  .split-note,
   .sync-note {
     margin: 0;
     color: var(--muted);
   }
 
+  .split-note,
   .sync-note {
     font-size: 0.85rem;
   }

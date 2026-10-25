@@ -9,10 +9,13 @@ import {
   DEATH_ANALYSIS_WINDOW_DAYS,
   getDeathAnalysisSummary,
   raidWindowForNight,
+  reportPullsInScope,
 } from '../lib/death-analysis';
 import { classColor } from '../lib/wow';
 import { FEATURE_FLAGS } from '../lib/feature-flags';
-import { SPEC_DEATH_ADJUSTMENT_STRENGTH, specName } from '../lib/spec-death-rates';
+import { HAS_MYTHIC_SPEC_DEATH_RATES, SPEC_DEATH_ADJUSTMENT_STRENGTH, specName } from '../lib/spec-death-rates';
+import { MYTHIC_DIFFICULTY, difficultyName, parseDifficultyScope, scopeDescription } from '../lib/raid-difficulty';
+import DifficultyToggle from '../components/DifficultyToggle.astro';
 
 if (!FEATURE_FLAGS.tools || !FEATURE_FLAGS.deathAnalysis) {
   return Astro.redirect('/');
@@ -23,12 +26,13 @@ if (!isGuildMember) {
   return Astro.redirect('/auth/login');
 }
 
-const review = await getDeathAnalysisSummary();
+const scope = parseDifficultyScope(Astro.url.searchParams.get('difficulty'));
+const review = await getDeathAnalysisSummary(undefined, scope);
 const dateFormatter = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' });
 const nightFormatter = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' });
 const startLabel = dateFormatter.format(new Date(review.cutoffUtc * 1000));
 const lastSyncedLabel = review.lastSyncedAt ? new Date(review.lastSyncedAt * 1000).toLocaleString('en-US', { timeZone: 'America/New_York' }) + ' ET' : 'Not synced yet';
-const includedNights = review.nights.filter((night) => night.canonical && night.canonical.bossPulls > 0);
+const includedNights = review.nights.filter((night) => night.canonical && (reportPullsInScope(night.canonical, scope) ?? 0) > 0);
 function nightLabel(nightKey: string): string {
   const window = raidWindowForNight(nightKey);
   return window ? nightFormatter.format(new Date(window.startUtc * 1000)) : nightKey;
@@ -43,12 +47,13 @@ function formatDeathOffset(ms: number): string {
   const seconds = totalSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
-const specStatsUrl = 'https://www.warcraftlogs.com/zone/statistics/53?metric=deaths&difficulty=4';
+const specStatsUrl = (difficulty: number) => `https://www.warcraftlogs.com/zone/statistics/53?metric=deaths&difficulty=${difficulty}`;
 function specAdjustmentLabel(specId: number | null, adjustment: number): string {
   const label = specName(specId) ?? 'class avg';
   return `${label} ÷${adjustment.toFixed(2)}`;
 }
-const guildRankingsUrl ='https://www.warcraftlogs.com/guild/rankings/781707/latest?difficulty=4&playerdisplay=median&recent=true';
+const rankingsDifficulty = scope === 'mythic' ? MYTHIC_DIFFICULTY : 4;
+const guildRankingsUrl = `https://www.warcraftlogs.com/guild/rankings/781707/latest?difficulty=${rankingsDifficulty}&playerdisplay=median&recent=true`;
 ---
 
 <Layout title="Death Analysis | The Hidden Lodge">
@@ -58,16 +63,22 @@ const guildRankingsUrl ='https://www.warcraftlogs.com/guild/rankings/781707/late
         <h1>Death Analysis</h1>
         <div class="scope-badges" aria-label="Current review scope">
           <span class="scope-badge">Season: Midnight S2</span>
-          <span class="scope-badge">Raid: {DEATH_ANALYSIS_RAID_NAME} (Heroic/Mythic)</span>
+          <span class="scope-badge">Raid: {DEATH_ANALYSIS_RAID_NAME} ({scopeDescription(scope)})</span>
           <span class="scope-badge">Thu/Fri 9pm–midnight ET</span>
           <span class="scope-badge">Last {DEATH_ANALYSIS_WINDOW_DAYS} days</span>
           <span class="scope-badge">Recent logs weighted more</span>
         </div>
         <p class="page-desc">
-          Tracks excessive deaths on our Thursday and Friday raid nights by weighting early deaths in each Heroic or Mythic {DEATH_ANALYSIS_RAID_NAME} boss pull. When several people log the same night, only one report counts.
+          Tracks excessive deaths on our Thursday and Friday raid nights by weighting early deaths in each {scope === 'combined' ? 'Heroic or Mythic' : scopeDescription(scope)} {DEATH_ANALYSIS_RAID_NAME} boss pull. When several people log the same night, only one report counts.
         </p>
+        {review.nightsAwaitingSplit > 0 && (
+          <p class="page-desc split-note">
+            {review.nightsAwaitingSplit} raid night{review.nightsAwaitingSplit === 1 ? ' was' : 's were'} synced before Heroic and Mythic were tracked separately, so {review.nightsAwaitingSplit === 1 ? 'it is' : 'they are'} left out of this view until the next few syncs re-read {review.nightsAwaitingSplit === 1 ? 'it' : 'them'}. Combined includes every night.
+          </p>
+        )}
       </div>
       <div class="header-actions">
+        <DifficultyToggle current={scope} />
         <a href={guildRankingsUrl} target="_blank" rel="noopener noreferrer" class="rankings-cta">
           View WCL Guild Rankings
         </a>
@@ -124,7 +135,9 @@ const guildRankingsUrl ='https://www.warcraftlogs.com/guild/rankings/781707/late
         </div>
         <div>
           <span class="formula-label">Spec adjustment</span>
-          <p>Some specs die more than others everywhere. Each report’s score is divided by <strong>(spec death rate / average death rate)<sup>{SPEC_DEATH_ADJUSTMENT_STRENGTH}</sup></strong>, using <a href={specStatsUrl} target="_blank" rel="noopener noreferrer" class="report-link">WCL’s Heroic death stats</a>. The exponent softens the correction, since those stats also reflect who plays each spec. Rankings and highlights use the adjusted score.</p>
+          <p>Some specs die more than others everywhere. Each report’s score is divided by <strong>(spec death rate / average death rate)<sup>{SPEC_DEATH_ADJUSTMENT_STRENGTH}</sup></strong>, using WCL’s death stats for the pull’s difficulty (<a href={specStatsUrl(4)} target="_blank" rel="noopener noreferrer" class="report-link">Heroic</a>{HAS_MYTHIC_SPEC_DEATH_RATES ? (
+            <>, <a href={specStatsUrl(MYTHIC_DIFFICULTY)} target="_blank" rel="noopener noreferrer" class="report-link">Mythic</a></>
+          ) : '; Mythic pulls use the Heroic rates until a Mythic snapshot is added'}). The exponent softens the correction, since those stats also reflect who plays each spec. Rankings and highlights use the adjusted score.</p>
         </div>
       </div>
     </section>
@@ -232,7 +245,7 @@ const guildRankingsUrl ='https://www.warcraftlogs.com/guild/rankings/781707/late
                                     >
                                       {link.nightKey ? nightLabel(link.nightKey) : link.reportCode}{link.encounterName ? ` · ${link.encounterName}` : ''}
                                     </a>
-                                    <span>{deathOrdinal(link.deathPosition)} death &middot; {formatDeathOffset(link.deathOffsetMs)} into pull</span>
+                                    <span>{scope === 'combined' && link.difficulty > 0 ? `${difficultyName(link.difficulty)} · ` : ''}{deathOrdinal(link.deathPosition)} death &middot; {formatDeathOffset(link.deathOffsetMs)} into pull</span>
                                   </td>
                                   <td class="death-cooldown-defensives">—</td>
                                   <td class="death-cooldown-consumables">—</td>
@@ -258,7 +271,7 @@ const guildRankingsUrl ='https://www.warcraftlogs.com/guild/rankings/781707/late
         <div class="section-heading-row">
           <div>
             <h2><Icon name="lucide:file-search" aria-hidden="true" />Included Raid Nights</h2>
-            <p class="section-copy">The one report counted for each raid night.</p>
+            <p class="section-copy">The one report counted for each raid night{scope === 'combined' ? '' : `, with its ${scopeDescription(scope)} pulls`}.</p>
           </div>
         </div>
         <div class="table-wrap">
@@ -268,7 +281,7 @@ const guildRankingsUrl ='https://www.warcraftlogs.com/guild/rankings/781707/late
                 <th>Night</th>
                 <th>WCL Report</th>
                 <th>Pulls</th>
-                <th>Kills</th>
+                {scope === 'combined' && <th>Kills</th>}
               </tr>
             </thead>
             <tbody>
@@ -278,8 +291,8 @@ const guildRankingsUrl ='https://www.warcraftlogs.com/guild/rankings/781707/late
                   <td>
                     <a href={`https://www.warcraftlogs.com/reports/${night.canonical!.code}`} target="_blank" rel="noopener noreferrer" class="report-link">{night.canonical!.code}</a>
                   </td>
-                  <td>{night.canonical!.bossPulls}</td>
-                  <td>{night.canonical!.bossKills}</td>
+                  <td>{reportPullsInScope(night.canonical!, scope)}</td>
+                  {scope === 'combined' && <td>{night.canonical!.bossKills}</td>}
                 </tr>
               ))}
             </tbody>
@@ -539,6 +552,10 @@ const guildRankingsUrl ='https://www.warcraftlogs.com/guild/rankings/781707/late
     align-items: center;
     gap: 0.6rem;
     flex-shrink: 0;
+  }
+
+  .split-note {
+    font-size: 0.88rem;
   }
 
   .rankings-cta {

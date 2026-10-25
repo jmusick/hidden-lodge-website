@@ -15,13 +15,22 @@ import {
   getDeathAnalysisNights,
   requireAccessToken,
 } from './death-analysis';
+import {
+  HEROIC_DIFFICULTY,
+  MYTHIC_DIFFICULTY,
+  TRACKED_DIFFICULTIES,
+  scopeDifficulty,
+  type DifficultyScope,
+} from './raid-difficulty';
 
 // Per-boss mechanic leaderboards. Reuses Death Analysis's canonical raid-night
-// reports (one per Thu/Fri night, Heroic/Mythic, last 90 days) and adds one
-// WCL events query per mechanic per report.
+// reports (one per Thu/Fri night, Heroic and Mythic, last
+// DEATH_ANALYSIS_WINDOW_DAYS days) and adds one WCL events query per mechanic
+// per report. Stats are stored per difficulty so the page can show Heroic,
+// Mythic, or both.
 
-// WCL difficulty ids: 4 Heroic, 5 Mythic — same scope as Death Analysis.
-const QUALIFYING_DIFFICULTIES = new Set([4, 5]);
+// Same difficulties as Death Analysis (Heroic, Mythic).
+const QUALIFYING_DIFFICULTIES = new Set(TRACKED_DIFFICULTIES);
 const DEFAULT_MAX_REPORTS_PER_RUN = 3;
 /** See REFRESH_TIME_BUDGET_MS in death-analysis.ts; this runs after it in the same cron request. */
 const REFRESH_TIME_BUDGET_MS = 6_000;
@@ -256,12 +265,15 @@ async function syncReportMechanics(
   const statements = [];
   for (const { boss, mechanic } of targets) {
     const fights = fightsByEncounter.get(boss.encounterId) ?? [];
-    const stats = new Map<number, MechanicCharStats>();
-    const statsFor = (charId: number) => {
-      let row = stats.get(charId);
+    // Kept separately per difficulty of the fight: difficulty -> character -> stats.
+    const stats = new Map<number, Map<number, MechanicCharStats>>();
+    const statsFor = (difficulty: number, charId: number) => {
+      const byChar = stats.get(difficulty) ?? new Map<number, MechanicCharStats>();
+      stats.set(difficulty, byChar);
+      let row = byChar.get(charId);
       if (!row) {
         row = { pullsByRole: new Map(), pullsPresent: 0, pullsHit: 0, hitCount: 0, bestPullCount: 0 };
-        stats.set(charId, row);
+        byChar.set(charId, row);
       }
       return row;
     };
@@ -281,10 +293,11 @@ async function syncReportMechanics(
 
       for (const fight of fights) {
         const fightId = Number(fight.id);
+        const difficulty = toPositiveInt(fight.difficulty);
         const counts = countsByFight.get(fightId) ?? new Map<number, number>();
         const roles = presentByFight.get(fightId) ?? new Map<number, MechanicRole | null>();
         for (const charId of new Set([...roles.keys(), ...counts.keys()])) {
-          const row = statsFor(charId);
+          const row = statsFor(difficulty, charId);
           const count = counts.get(charId) ?? 0;
           const role = roles.get(charId);
           if (role) row.pullsByRole.set(role, (row.pullsByRole.get(role) ?? 0) + 1);
@@ -298,31 +311,44 @@ async function syncReportMechanics(
 
     statements.push(
       db.prepare('DELETE FROM mechanics_analysis_stats WHERE report_code = ? AND mechanic_key = ?').bind(reportCode, mechanic.key),
-      ...[...stats.entries()].map(([charId, row]) =>
-        db
-          .prepare(
-            `INSERT INTO mechanics_analysis_stats
-               (report_code, mechanic_key, blizzard_char_id, role, pulls_present, pulls_hit, hit_count, best_pull_count)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-          )
-          .bind(
-            reportCode,
-            mechanic.key,
-            charId,
-            mainRole(row.pullsByRole),
-            row.pullsPresent,
-            row.pullsHit,
-            row.hitCount,
-            row.bestPullCount
-          )
+      ...[...stats.entries()].flatMap(([difficulty, byChar]) =>
+        [...byChar.entries()].map(([charId, row]) =>
+          db
+            .prepare(
+              `INSERT INTO mechanics_analysis_stats
+                 (report_code, mechanic_key, blizzard_char_id, difficulty, role, pulls_present, pulls_hit, hit_count, best_pull_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            )
+            .bind(
+              reportCode,
+              mechanic.key,
+              charId,
+              difficulty,
+              mainRole(row.pullsByRole),
+              row.pullsPresent,
+              row.pullsHit,
+              row.hitCount,
+              row.bestPullCount
+            )
+        )
       ),
       db
         .prepare(
-          `INSERT INTO mechanics_analysis_reports (report_code, mechanic_key, pulls, synced_at)
-           VALUES (?, ?, ?, unixepoch())
-           ON CONFLICT(report_code, mechanic_key) DO UPDATE SET pulls = excluded.pulls, synced_at = excluded.synced_at`
+          `INSERT INTO mechanics_analysis_reports (report_code, mechanic_key, pulls, heroic_pulls, mythic_pulls, synced_at)
+           VALUES (?, ?, ?, ?, ?, unixepoch())
+           ON CONFLICT(report_code, mechanic_key) DO UPDATE SET
+             pulls = excluded.pulls,
+             heroic_pulls = excluded.heroic_pulls,
+             mythic_pulls = excluded.mythic_pulls,
+             synced_at = excluded.synced_at`
         )
-        .bind(reportCode, mechanic.key, fights.length)
+        .bind(
+          reportCode,
+          mechanic.key,
+          fights.length,
+          fights.filter((fight) => toPositiveInt(fight.difficulty) === HEROIC_DIFFICULTY).length,
+          fights.filter((fight) => toPositiveInt(fight.difficulty) === MYTHIC_DIFFICULTY).length
+        )
     );
   }
   await db.batch(statements);
@@ -441,9 +467,12 @@ export interface MechanicLeaderboard {
   range: MechanicRange;
   /** Role filter applied to `entries`; null shows everyone. */
   role: MechanicRole | null;
+  scope: DifficultyScope;
   cutoffUtc: number;
   nightsCounted: number;
   nightsPending: number;
+  /** Heroic/Mythic views only: synced nights not split by difficulty yet, left out until the next sync. */
+  nightsAwaitingSplit: number;
   pullsCounted: number;
   /** Raid-wide total, before the role filter. */
   totalCount: number;
@@ -456,7 +485,7 @@ export function findBoss(slug: string | null | undefined): BossDefinition {
   return MECHANICS_BOSSES.find((boss) => boss.slug === slug) ?? MECHANICS_BOSSES[0];
 }
 
-/** `latest`: the most recent counted night that pulled this boss. `all`: every counted night (last 90 days). */
+/** `latest`: the most recent counted night that pulled this boss. `all`: every counted night (last DEATH_ANALYSIS_WINDOW_DAYS days). */
 export type MechanicRange = 'latest' | 'all';
 
 export function parseMechanicRange(value: string | null | undefined): MechanicRange {
@@ -468,6 +497,7 @@ export async function getMechanicLeaderboard(
   mechanic: MechanicDefinition,
   range: MechanicRange = 'all',
   role: MechanicRole | null = null,
+  scope: DifficultyScope = 'combined',
   dbInput?: D1Database
 ): Promise<MechanicLeaderboard> {
   const db = getDatabase(dbInput);
@@ -479,9 +509,11 @@ export async function getMechanicLeaderboard(
     mechanic,
     range,
     role,
+    scope,
     cutoffUtc: deathAnalysisCutoffUtc(),
     nightsCounted: 0,
     nightsPending: 0,
+    nightsAwaitingSplit: 0,
     pullsCounted: 0,
     totalCount: 0,
     lastSyncedAt: null,
@@ -490,18 +522,24 @@ export async function getMechanicLeaderboard(
   };
   if (codes.length === 0) return leaderboard;
 
-  // D1 caps bound parameters at 100; 90 days of Thu/Fri nights is ~26 codes.
+  // D1 caps bound parameters at 100; 60 days of Thu/Fri nights is ~18 codes.
   const reportsResult = await db
     .prepare(
-      `SELECT report_code, pulls, synced_at FROM mechanics_analysis_reports
+      `SELECT report_code, pulls, heroic_pulls, mythic_pulls, synced_at FROM mechanics_analysis_reports
        WHERE mechanic_key = ? AND report_code IN (${codes.map(() => '?').join(', ')})`
     )
     .bind(mechanic.key, ...codes)
     .all<Record<string, unknown>>();
 
-  const syncedByCode = new Map<string, { pulls: number; syncedAt: number }>();
+  // `pulls` is already narrowed to the scope; null means the report hasn't been
+  // split by difficulty yet (Heroic/Mythic views only).
+  const syncedByCode = new Map<string, { pulls: number | null; syncedAt: number }>();
   for (const row of reportsResult.results ?? []) {
-    syncedByCode.set(String(row.report_code), { pulls: toPositiveInt(row.pulls), syncedAt: toPositiveInt(row.synced_at) });
+    const scopeColumn = scope === 'heroic' ? row.heroic_pulls : scope === 'mythic' ? row.mythic_pulls : row.pulls;
+    syncedByCode.set(String(row.report_code), {
+      pulls: scopeColumn === null || scopeColumn === undefined ? null : toPositiveInt(scopeColumn),
+      syncedAt: toPositiveInt(row.synced_at),
+    });
   }
   // Newest night first, so "latest" is reports[0].
   for (const night of [...canonicalNights].sort((a, b) => b.nightKey.localeCompare(a.nightKey))) {
@@ -511,6 +549,10 @@ export async function getMechanicLeaderboard(
       continue;
     }
     leaderboard.lastSyncedAt = Math.max(leaderboard.lastSyncedAt ?? 0, synced.syncedAt);
+    if (synced.pulls === null) {
+      leaderboard.nightsAwaitingSplit += 1;
+      continue;
+    }
     if (synced.pulls > 0) {
       leaderboard.reports.push({ code: night.canonical!.code, nightKey: night.nightKey, pulls: synced.pulls });
     }
@@ -522,7 +564,11 @@ export async function getMechanicLeaderboard(
 
   const selectedCodes = leaderboard.reports.map((report) => report.code);
   // One row per character per role played; merged below so each raider gets
-  // one entry, labelled with the role they played in the most pulls.
+  // one entry, labelled with the role they played in the most pulls. Heroic and
+  // Mythic scopes read only that difficulty's rows; Combined reads all of them,
+  // including unsplit (difficulty 0) rows from before the split. This is
+  // scopeIncludes(scope, s.difficulty) expressed in SQL.
+  const onlyDifficulty = scopeDifficulty(scope);
   const statsResult = await db
     .prepare(
       `${CHARACTER_IDENTITY_CTE}
@@ -532,7 +578,7 @@ export async function getMechanicLeaderboard(
          COALESCE(ic.name, 'Unknown') AS name,
          COALESCE(ic.realm, 'Unknown') AS realm,
          COALESCE(ic.class_name, 'Unknown') AS class_name,
-         COUNT(*) AS nights,
+         COUNT(DISTINCT s.report_code) AS nights,
          SUM(s.pulls_present) AS pulls_present,
          SUM(s.pulls_hit) AS pulls_hit,
          SUM(s.hit_count) AS hit_count,
@@ -540,9 +586,10 @@ export async function getMechanicLeaderboard(
        FROM mechanics_analysis_stats s
        LEFT JOIN identity_choice ic ON ic.blizzard_char_id = s.blizzard_char_id AND ic.rn = 1
        WHERE s.mechanic_key = ? AND s.report_code IN (${selectedCodes.map(() => '?').join(', ')})
+         ${onlyDifficulty === null ? '' : 'AND s.difficulty = ?'}
        GROUP BY s.blizzard_char_id, s.role, ic.name, ic.realm, ic.class_name`
     )
-    .bind(mechanic.key, ...selectedCodes)
+    .bind(mechanic.key, ...selectedCodes, ...(onlyDifficulty === null ? [] : [onlyDifficulty]))
     .all<Record<string, unknown>>();
 
   const byCharId = new Map<number, MechanicLeaderboardEntry & { pullsByRole: Map<MechanicRole, number> }>();
@@ -569,7 +616,7 @@ export async function getMechanicLeaderboard(
       };
       byCharId.set(blizzardCharId, entry);
     }
-    // A role swap mid-night can't split a report row, so nights can't double count.
+    // Nights can double count only if someone played different roles on Heroic and Mythic the same night.
     entry.nights += toPositiveInt(row.nights);
     entry.pullsPresent += pullsPresent;
     entry.pullsHit += toPositiveInt(row.pulls_hit);

@@ -16,6 +16,14 @@ import {
 import { easternWallClockToUtcSeconds } from './wow-reset';
 import { isGuildOfficer } from './auth';
 import { specDeathAdjustment } from './spec-death-rates';
+import {
+  HEROIC_DIFFICULTY,
+  MYTHIC_DIFFICULTY,
+  TRACKED_DIFFICULTIES,
+  scopeDifficulty,
+  scopeIncludes,
+  type DifficultyScope,
+} from './raid-difficulty';
 
 export const DEATH_ANALYSIS_WINDOW_DAYS = 60;
 /** A raid night 30 days old contributes half as much as a raid night today. */
@@ -25,8 +33,9 @@ export const DEATH_ANALYSIS_MIN_PULLS = 10;
 export const DEATH_ANALYSIS_MIN_REPORTS = 2;
 const SIGNIFICANT_THRESHOLD = 0.25;
 
-// WCL difficulty ids: 3 Normal, 4 Heroic, 5 Mythic.
-const QUALIFYING_DIFFICULTIES = new Set([4, 5]);
+// Heroic and Mythic (WCL ids 4 and 5). Stats are stored per difficulty so
+// pages can show either one or both added together (see raid-difficulty.ts).
+const QUALIFYING_DIFFICULTIES = new Set(TRACKED_DIFFICULTIES);
 // Sub-30s fights are usually an immediate wipe (bad pull, DC, accidental pull)
 // rather than a real attempt; excluding them keeps pulls/deaths meaningful.
 export const MIN_FIGHT_DURATION_MS = 30_000;
@@ -251,14 +260,17 @@ async function syncReport(
   const statements = [
     db
       .prepare(
-        `INSERT INTO death_analysis_reports (report_code, night_key, report_start_utc, report_end_utc, boss_pulls, boss_kills, synced_at)
-         VALUES (?, ?, ?, ?, ?, ?, unixepoch())
+        `INSERT INTO death_analysis_reports (
+           report_code, night_key, report_start_utc, report_end_utc, boss_pulls, boss_kills, heroic_pulls, mythic_pulls, synced_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
          ON CONFLICT(report_code) DO UPDATE SET
            night_key = excluded.night_key,
            report_start_utc = excluded.report_start_utc,
            report_end_utc = excluded.report_end_utc,
            boss_pulls = excluded.boss_pulls,
            boss_kills = excluded.boss_kills,
+           heroic_pulls = excluded.heroic_pulls,
+           mythic_pulls = excluded.mythic_pulls,
            -- A spec backfill keeps synced_at: mechanics and Pull Scores re-sync any
            -- report whose synced_at moves, and nothing they read has changed.
            synced_at = CASE WHEN ? THEN death_analysis_reports.synced_at ELSE excluded.synced_at END`
@@ -270,39 +282,45 @@ async function syncReport(
         details.reportEndUtc ?? report.endUtc,
         details.scopedFightCount,
         details.scopedKillCount,
+        details.byDifficulty.get(HEROIC_DIFFICULTY)?.scopedFightCount ?? 0,
+        details.byDifficulty.get(MYTHIC_DIFFICULTY)?.scopedFightCount ?? 0,
         options?.keepSyncedAt ? 1 : 0
       ),
     db.prepare('DELETE FROM death_analysis_stats WHERE report_code = ?').bind(report.code),
-    ...[...details.deathStatsByCharId.entries()]
-      .filter(([, stats]) => stats.fightsPresent > 0 || stats.totalDeaths > 0)
-      .map(([blizzardCharId, stats]) =>
-        db
-          .prepare(
-            `INSERT INTO death_analysis_stats (
-               report_code, blizzard_char_id, fights_present, total_deaths,
-               first_death_count, second_death_count, third_death_count, fourth_death_count, spec_id
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          )
-          .bind(
-            report.code,
-            blizzardCharId,
-            stats.fightsPresent,
-            stats.totalDeaths,
-            stats.firstDeathCount,
-            stats.secondDeathCount,
-            stats.thirdDeathCount,
-            stats.fourthDeathCount,
-            // 0 = synced but WCL gave no spec; NULL = synced before spec_id existed (backfill pending).
-            details.specIdByCharId.get(blizzardCharId) ?? 0
-          )
-      ),
+    // One row per raider per difficulty, so pages can show Heroic, Mythic, or both added together.
+    ...[...details.byDifficulty.entries()].flatMap(([difficulty, slice]) =>
+      [...slice.deathStatsByCharId.entries()]
+        .filter(([, stats]) => stats.fightsPresent > 0 || stats.totalDeaths > 0)
+        .map(([blizzardCharId, stats]) =>
+          db
+            .prepare(
+              `INSERT INTO death_analysis_stats (
+                 report_code, blizzard_char_id, difficulty, fights_present, total_deaths,
+                 first_death_count, second_death_count, third_death_count, fourth_death_count, spec_id
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            )
+            .bind(
+              report.code,
+              blizzardCharId,
+              difficulty,
+              stats.fightsPresent,
+              stats.totalDeaths,
+              stats.firstDeathCount,
+              stats.secondDeathCount,
+              stats.thirdDeathCount,
+              stats.fourthDeathCount,
+              // 0 = synced but WCL gave no spec; NULL = synced before spec_id existed (backfill pending).
+              slice.specIdByCharId.get(blizzardCharId) ?? 0
+            )
+        )
+    ),
     db.prepare('DELETE FROM death_analysis_events WHERE report_code = ?').bind(report.code),
     ...details.deathEvents.map((event) =>
       db
         .prepare(
           `INSERT INTO death_analysis_events (
-             report_code, fight_id, death_position, blizzard_char_id, encounter_id, encounter_name, death_offset_ms
-           ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+             report_code, fight_id, death_position, blizzard_char_id, encounter_id, encounter_name, death_offset_ms, difficulty
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
           report.code,
@@ -311,7 +329,8 @@ async function syncReport(
           event.blizzardCharId,
           event.encounterId,
           encounters.names.get(event.encounterId) ?? '',
-          event.deathOffsetMs
+          event.deathOffsetMs,
+          event.difficulty
         )
     ),
   ];
@@ -447,11 +466,16 @@ export async function refreshDeathAnalysis(
     })
     .sort((a, b) => b.startUtc - a.startUtc);
 
-  // Already-synced reports with stats rows from before spec_id existed. Re-read
-  // after new work, newest first, without bumping synced_at (see syncReport).
+  // Already-synced reports from before spec_id existed, or from before stats
+  // were split by difficulty (heroic_pulls NULL). Re-read after new work,
+  // newest first, without bumping synced_at (see syncReport).
   const pendingCodes = new Set(pending.map((report) => report.code));
   const backfillResult = await db
-    .prepare('SELECT DISTINCT report_code FROM death_analysis_stats WHERE spec_id IS NULL AND fights_present > 0')
+    .prepare(
+      `SELECT DISTINCT report_code FROM death_analysis_stats WHERE spec_id IS NULL AND fights_present > 0
+       UNION
+       SELECT report_code FROM death_analysis_reports WHERE heroic_pulls IS NULL`
+    )
     .all<{ report_code: string }>();
   const backfillCodes = new Set((backfillResult.results ?? []).map((row) => row.report_code));
   const backfill = inWindow
@@ -548,9 +572,20 @@ export interface DeathAnalysisReportRow {
   code: string;
   startUtc: number;
   endUtc: number;
+  /** Qualifying pulls, Heroic + Mythic. */
   bossPulls: number;
   bossKills: number;
+  /** bossPulls split by difficulty; null until a report synced before the split is backfilled. */
+  heroicPulls: number | null;
+  mythicPulls: number | null;
   syncedAt: number;
+}
+
+/** A report's qualifying pulls in `scope`; null while the split isn't known yet (Combined always is). */
+export function reportPullsInScope(report: DeathAnalysisReportRow, scope: DifficultyScope): number | null {
+  if (scope === 'heroic') return report.heroicPulls;
+  if (scope === 'mythic') return report.mythicPulls;
+  return report.bossPulls;
 }
 
 export interface DeathAnalysisNight {
@@ -566,6 +601,8 @@ export interface DeathAnalysisDeathLink {
   nightKey: string | null;
   fightId: number;
   encounterName: string;
+  /** WCL difficulty id; 0 for a death synced before the difficulty split. */
+  difficulty: number;
   /** 1-4; position within the pull. */
   deathPosition: number;
   deathOffsetMs: number;
@@ -603,6 +640,9 @@ export interface DeathAnalysisEntry {
 }
 
 export interface DeathAnalysisSummary {
+  scope: DifficultyScope;
+  /** Counted nights left out of a Heroic/Mythic view because their report hasn't been split by difficulty yet (always 0 for Combined). */
+  nightsAwaitingSplit: number;
   cutoffUtc: number;
   minimumPulls: number;
   minimumReports: number;
@@ -633,7 +673,7 @@ export async function getDeathAnalysisNights(dbInput?: D1Database): Promise<Deat
   const [reportsResult, overridesResult] = await db.batch([
     db
       .prepare(
-        `SELECT report_code, night_key, report_start_utc, report_end_utc, boss_pulls, boss_kills, synced_at
+        `SELECT report_code, night_key, report_start_utc, report_end_utc, boss_pulls, boss_kills, heroic_pulls, mythic_pulls, synced_at
          FROM death_analysis_reports
          WHERE report_end_utc >= ?`
       )
@@ -651,6 +691,8 @@ export async function getDeathAnalysisNights(dbInput?: D1Database): Promise<Deat
       endUtc: toPositiveInt(row.report_end_utc),
       bossPulls: toPositiveInt(row.boss_pulls),
       bossKills: toPositiveInt(row.boss_kills),
+      heroicPulls: row.heroic_pulls === null || row.heroic_pulls === undefined ? null : toPositiveInt(row.heroic_pulls),
+      mythicPulls: row.mythic_pulls === null || row.mythic_pulls === undefined ? null : toPositiveInt(row.mythic_pulls),
       syncedAt: toPositiveInt(row.synced_at),
     });
     reportsByNight.set(nightKey, list);
@@ -697,11 +739,17 @@ export const CHARACTER_IDENTITY_CTE = `WITH identities AS (
            FROM identities
          )`;
 
-export async function getDeathAnalysisSummary(dbInput?: D1Database): Promise<DeathAnalysisSummary> {
+export async function getDeathAnalysisSummary(
+  dbInput?: D1Database,
+  scope: DifficultyScope = 'combined'
+): Promise<DeathAnalysisSummary> {
   const db = getDatabase(dbInput);
   const scoringNowUtc = nowInSeconds();
   const nights = await getDeathAnalysisNights(db);
-  const included = nights.filter((night) => night.canonical && night.canonical.bossPulls > 0);
+  const counted = nights.filter((night) => night.canonical && night.canonical.bossPulls > 0);
+  // A Heroic/Mythic view can only use reports whose stats are already split by difficulty.
+  const nightsAwaitingSplit = counted.filter((night) => reportPullsInScope(night.canonical!, scope) === null).length;
+  const included = counted.filter((night) => (reportPullsInScope(night.canonical!, scope) ?? 0) > 0);
   const canonicalCodes = included.map((night) => night.canonical!.code);
 
   const nightKeyByReportCode = new Map(included.map((night) => [night.canonical!.code, night.nightKey]));
@@ -714,7 +762,7 @@ export async function getDeathAnalysisSummary(dbInput?: D1Database): Promise<Dea
 
     const eventsResult = await db
       .prepare(
-        `SELECT report_code, fight_id, death_position, blizzard_char_id, encounter_name, death_offset_ms
+        `SELECT report_code, fight_id, death_position, blizzard_char_id, encounter_name, death_offset_ms, difficulty
          FROM death_analysis_events
          WHERE report_code IN (${placeholders})`
       )
@@ -723,6 +771,8 @@ export async function getDeathAnalysisSummary(dbInput?: D1Database): Promise<Dea
     for (const row of eventsResult.results ?? []) {
       const blizzardCharId = toPositiveInt(row.blizzard_char_id);
       if (blizzardCharId <= 0) continue;
+      const difficulty = toPositiveInt(row.difficulty);
+      if (!scopeIncludes(scope, difficulty)) continue;
       const reportCode = String(row.report_code);
       const list = linksByChar.get(blizzardCharId) ?? [];
       list.push({
@@ -730,6 +780,7 @@ export async function getDeathAnalysisSummary(dbInput?: D1Database): Promise<Dea
         nightKey: nightKeyByReportCode.get(reportCode) ?? null,
         fightId: toPositiveInt(row.fight_id),
         encounterName: String(row.encounter_name ?? ''),
+        difficulty,
         deathPosition: toPositiveInt(row.death_position),
         deathOffsetMs: toPositiveInt(row.death_offset_ms),
       });
@@ -745,6 +796,7 @@ export async function getDeathAnalysisSummary(dbInput?: D1Database): Promise<Dea
          SELECT
            s.blizzard_char_id,
            s.report_code,
+           s.difficulty,
            COALESCE(ic.name, 'Unknown') AS name,
            COALESCE(ic.realm, 'Unknown') AS realm,
            COALESCE(ic.class_name, 'Unknown') AS class_name,
@@ -787,6 +839,8 @@ export async function getDeathAnalysisSummary(dbInput?: D1Database): Promise<Dea
     for (const row of result.results ?? []) {
       const blizzardCharId = toPositiveInt(row.blizzard_char_id);
       if (blizzardCharId <= 0) continue;
+      const difficulty = toPositiveInt(row.difficulty);
+      if (!scopeIncludes(scope, difficulty)) continue;
 
       const fightsPresent = toPositiveInt(row.fights_present);
       const totalDeaths = toPositiveInt(row.total_deaths);
@@ -825,7 +879,7 @@ export async function getDeathAnalysisSummary(dbInput?: D1Database): Promise<Dea
       aggregate.weightedPulls += fightsPresent * weight;
       aggregate.weightedDeaths += totalDeaths * weight;
       aggregate.weightedDeathImpact += deathImpact;
-      aggregate.adjustedDeathImpact += deathImpact / specDeathAdjustment(specId, aggregate.className);
+      aggregate.adjustedDeathImpact += deathImpact / specDeathAdjustment(specId, aggregate.className, difficulty);
       if (specId) aggregate.pullsBySpec.set(specId, (aggregate.pullsBySpec.get(specId) ?? 0) + fightsPresent);
       aggregates.set(blizzardCharId, aggregate);
     }
@@ -851,7 +905,7 @@ export async function getDeathAnalysisSummary(dbInput?: D1Database): Promise<Dea
         specAdjustment:
           aggregate.adjustedDeathImpact > 0
             ? aggregate.weightedDeathImpact / aggregate.adjustedDeathImpact
-            : specDeathAdjustment(topSpec?.[0] ?? null, aggregate.className),
+            : specDeathAdjustment(topSpec?.[0] ?? null, aggregate.className, scopeDifficulty(scope) ?? HEROIC_DIFFICULTY),
         totalDeathRate: aggregate.weightedDeaths / aggregate.weightedPulls,
         percentAboveAverage: null,
         isSignificantlyAboveAverage: false,
@@ -891,12 +945,14 @@ export async function getDeathAnalysisSummary(dbInput?: D1Database): Promise<Dea
 
   const allSyncedAt = nights.flatMap((night) => night.reports.map((report) => report.syncedAt));
   return {
+    scope,
+    nightsAwaitingSplit,
     cutoffUtc: deathAnalysisCutoffUtc(),
     minimumPulls: DEATH_ANALYSIS_MIN_PULLS,
     minimumReports: DEATH_ANALYSIS_MIN_REPORTS,
     nights,
     includedNights: included.length,
-    includedPulls: included.reduce((sum, night) => sum + night.canonical!.bossPulls, 0),
+    includedPulls: included.reduce((sum, night) => sum + (reportPullsInScope(night.canonical!, scope) ?? 0), 0),
     lastSyncedAt: allSyncedAt.length > 0 ? Math.max(...allSyncedAt) : null,
     qualifiedPlayers: qualified.length,
     averageWeightedScore,

@@ -1,6 +1,7 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import { env } from 'cloudflare:workers';
 import { getBenchData, type BenchRaider } from './bench';
+import { isDifficultyScope, type DifficultyScope } from './raid-difficulty';
 import { ALL_RAID_BUFFS, CONFIGURABLE_RAID_BUFFS, DEFAULT_CONFIGURABLE_BUFF_MINIMUM, classRaidData } from './raid-teams';
 
 export type UtilityMinimums = Map<string, number>;
@@ -24,6 +25,8 @@ export interface RaidCompSettings {
   preparednessWeight: number;
   upgradesWeight: number;
   scale: RaidCompScale;
+  /** Which difficulty's deaths, Pull Score, and WCL Parse the comp is scored on. */
+  difficultyScope: DifficultyScope;
 }
 
 export type AssignedRole = 'tank' | 'healer' | 'melee-dps' | 'ranged-dps';
@@ -53,6 +56,7 @@ const DEFAULT_SETTINGS: RaidCompSettings = {
   preparednessWeight: 5,
   upgradesWeight: 0,
   scale: 'percentile',
+  difficultyScope: 'combined',
 };
 const MIN_GROUP_COUNT = 4;
 /** A WoW raid group is a fixed 5 slots. */
@@ -448,7 +452,7 @@ export async function getRaidCompSettings(dbInput?: D1Database): Promise<RaidCom
   const db = getDatabase(dbInput);
   const row = await db
     .prepare(
-      'SELECT tank_quota, healer_quota, melee_dps_quota, ranged_dps_quota, parse_weight, death_weight, vault_weight, preparedness_weight, upgrades_weight, scale FROM raid_comp_settings WHERE id = 1'
+      'SELECT tank_quota, healer_quota, melee_dps_quota, ranged_dps_quota, parse_weight, death_weight, vault_weight, preparedness_weight, upgrades_weight, scale, difficulty_scope FROM raid_comp_settings WHERE id = 1'
     )
     .first<{
       tank_quota: number;
@@ -461,6 +465,7 @@ export async function getRaidCompSettings(dbInput?: D1Database): Promise<RaidCom
       preparedness_weight: number;
       upgrades_weight: number;
       scale: string;
+      difficulty_scope: string;
     }>();
   if (!row) return DEFAULT_SETTINGS;
   return {
@@ -474,6 +479,7 @@ export async function getRaidCompSettings(dbInput?: D1Database): Promise<RaidCom
     preparednessWeight: Number(row.preparedness_weight),
     upgradesWeight: Number(row.upgrades_weight),
     scale: row.scale === 'raw' ? 'raw' : 'percentile',
+    difficultyScope: isDifficultyScope(row.difficulty_scope) ? row.difficulty_scope : 'combined',
   };
 }
 
@@ -592,6 +598,9 @@ function parseLoadoutSettings(value: string): RaidCompSettings {
   };
   const scale = parsed.scale === 'raw' ? 'raw' : parsed.scale === 'percentile' ? 'percentile' : null;
   if (!scale) throw new Error('Saved loadout has invalid scale.');
+  // Loadouts saved before the difficulty setting existed load with the default.
+  const difficultyScope = parsed.difficultyScope === undefined ? DEFAULT_SETTINGS.difficultyScope : parsed.difficultyScope;
+  if (!isDifficultyScope(difficultyScope)) throw new Error('Saved loadout has invalid difficulty.');
   return {
     tankQuota: readNumber('tankQuota'),
     healerQuota: readNumber('healerQuota'),
@@ -603,6 +612,7 @@ function parseLoadoutSettings(value: string): RaidCompSettings {
     preparednessWeight: readNumber('preparednessWeight'),
     upgradesWeight: readNumber('upgradesWeight'),
     scale,
+    difficultyScope,
   };
 }
 
@@ -637,8 +647,8 @@ function writeRaidCompSettings(db: D1Database, settings: RaidCompSettings, userI
     .prepare(
       `INSERT INTO raid_comp_settings (
          id, tank_quota, healer_quota, dps_quota, melee_dps_quota, ranged_dps_quota, weight, parse_weight, death_weight, vault_weight, preparedness_weight, upgrades_weight,
-         scale, updated_by_user_id, updated_at
-       ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+         scale, difficulty_scope, updated_by_user_id, updated_at
+       ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
        ON CONFLICT(id) DO UPDATE SET
          tank_quota = excluded.tank_quota,
          healer_quota = excluded.healer_quota,
@@ -651,6 +661,7 @@ function writeRaidCompSettings(db: D1Database, settings: RaidCompSettings, userI
          preparedness_weight = excluded.preparedness_weight,
          upgrades_weight = excluded.upgrades_weight,
          scale = excluded.scale,
+         difficulty_scope = excluded.difficulty_scope,
          updated_by_user_id = excluded.updated_by_user_id,
          updated_at = excluded.updated_at`
     )
@@ -667,6 +678,7 @@ function writeRaidCompSettings(db: D1Database, settings: RaidCompSettings, userI
       settings.preparednessWeight,
       settings.upgradesWeight,
       settings.scale,
+      settings.difficultyScope,
       userId
     );
 }
@@ -905,47 +917,16 @@ export async function swapRaidCompAssignments(
 /** Saves the given settings, then rebuilds and persists the whole board from Bench's current priority order. */
 export async function regenerateRaidComp(dbInput: D1Database | undefined, settings: RaidCompSettings, userId: number): Promise<void> {
   const db = getDatabase(dbInput);
-  const [bench, utilityMinimums, buffMinimums] = await Promise.all([getBenchData(db), getUtilityMinimums(db), getBuffMinimums(db)]);
+  const [bench, utilityMinimums, buffMinimums] = await Promise.all([
+    getBenchData(db, settings.difficultyScope),
+    getUtilityMinimums(db),
+    getBuffMinimums(db),
+  ]);
   const priorityOrder = rankByPriority([...bench.ranked, ...bench.belowMinimum], settings);
   const assignments = buildAssignments(priorityOrder, settings, utilityMinimums, buffMinimums);
 
   const statements = [
-    db
-      .prepare(
-        `INSERT INTO raid_comp_settings (
-           id, tank_quota, healer_quota, dps_quota, melee_dps_quota, ranged_dps_quota, weight, parse_weight, death_weight, vault_weight, preparedness_weight, upgrades_weight,
-           scale, updated_by_user_id, updated_at
-         ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
-         ON CONFLICT(id) DO UPDATE SET
-           tank_quota = excluded.tank_quota,
-           healer_quota = excluded.healer_quota,
-           dps_quota = excluded.dps_quota,
-           melee_dps_quota = excluded.melee_dps_quota,
-           ranged_dps_quota = excluded.ranged_dps_quota,
-           parse_weight = excluded.parse_weight,
-           death_weight = excluded.death_weight,
-           vault_weight = excluded.vault_weight,
-           preparedness_weight = excluded.preparedness_weight,
-           upgrades_weight = excluded.upgrades_weight,
-           scale = excluded.scale,
-           updated_by_user_id = excluded.updated_by_user_id,
-           updated_at = excluded.updated_at`
-      )
-      .bind(
-        settings.tankQuota,
-        settings.healerQuota,
-        settings.meleeDpsQuota + settings.rangedDpsQuota,
-        settings.meleeDpsQuota,
-        settings.rangedDpsQuota,
-        settings.parseWeight,
-        settings.parseWeight,
-        settings.deathWeight,
-        settings.vaultWeight,
-        settings.preparednessWeight,
-        settings.upgradesWeight,
-        settings.scale,
-        userId
-    ),
+    writeRaidCompSettings(db, settings, userId),
     db.prepare('DELETE FROM raid_comp_assignments'),
     db.prepare('DELETE FROM raid_comp_manual_overrides'),
     ...[...assignments.entries()].map(([charId, group]) =>

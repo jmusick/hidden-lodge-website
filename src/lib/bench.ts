@@ -20,19 +20,24 @@ import { ROLE_BY_SPEC_ID, type MechanicRole } from './mechanics-analysis';
 import { computeGreatVaultScore } from './raiders';
 import { getUsWeeklyResetTimestamp } from './wow-reset';
 import { aggregatePullScoreRows, getPullScoreRows, type PullScoreRow } from './pull-scores';
+import { TRACKED_DIFFICULTIES, scopeDifficulty, type DifficultyScope } from './raid-difficulty';
 
 // Bench analysis: Death Analysis + each raider's median WCL parse. Backs the
 // officer-only scoring section of /raid-composition (Tools menu). Parses are cached
 // in bench_parses; scoring inputs are configured on Raid Comp client-side,
 // and Raid Comp (src/lib/raid-comp.ts) reuses this same priority order.
 
-/** WCL difficulty the parses are pulled for (4 = Heroic), matching the guild rankings page. */
-export const BENCH_PARSE_DIFFICULTY = 4;
+/**
+ * WCL difficulties the parses are pulled for (Heroic and Mythic), one cached
+ * row each. WCL ranks each difficulty separately and has no combined median,
+ * so Combined is this site's own blend (see combinedRoleParse).
+ */
+export const BENCH_PARSE_DIFFICULTIES = TRACKED_DIFFICULTIES;
 /** Cached parses older than this are refetched by the cron. */
 export const BENCH_PARSE_STALE_SECONDS = 6 * 60 * 60;
 const WCL_SERVER_REGION = 'US';
-/** Characters per GraphQL request (3 zoneRankings each). */
-const PARSE_BATCH_SIZE = 10;
+/** Characters per GraphQL request (3 zoneRankings per difficulty each). */
+const PARSE_BATCH_SIZE = 5;
 const DEFAULT_TIME_BUDGET_MS = 8_000;
 /** Stays under D1's 100 bound-parameter limit per statement. */
 const D1_PARAM_CHUNK = 90;
@@ -105,6 +110,8 @@ export interface BenchFlags {
 }
 
 export interface BenchData {
+  /** Difficulty scope the deaths, Pull Score, and WCL Parse were read for. */
+  scope: DifficultyScope;
   summary: DeathAnalysisSummary;
   lastParseSyncAt: number | null;
   ranked: BenchRaider[];
@@ -121,6 +128,7 @@ export interface BenchParseRefreshResult {
 
 interface ParseRow {
   blizzard_char_id: number;
+  difficulty: number;
   zone_id: number;
   wcl_found: number;
   dps_median: number | null;
@@ -180,10 +188,37 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
+/** A character's cached parse rows, keyed by WCL difficulty id. */
+type ParseRowsByDifficulty = Map<number, ParseRow>;
+
 function roleParse(row: ParseRow, role: BenchRole): RoleParse {
   if (role === 'healer') return { median: row.healer_median, bosses: row.healer_bosses };
   if (role === 'tank') return { median: row.tank_median, bosses: row.tank_bosses };
   return { median: row.dps_median, bosses: row.dps_bosses };
+}
+
+/**
+ * Combined WCL Parse: each difficulty's median weighted by how many bosses it
+ * covers. Not a WCL number (WCL never pools difficulties); a raider ranked on
+ * 8 Heroic and 2 Mythic bosses gets 80% Heroic, 20% Mythic.
+ */
+function combinedRoleParse(rows: ParseRow[], role: BenchRole): RoleParse {
+  let weighted = 0;
+  let bosses = 0;
+  for (const row of rows) {
+    const parse = roleParse(row, role);
+    if (parse.median === null || parse.bosses <= 0) continue;
+    weighted += parse.median * parse.bosses;
+    bosses += parse.bosses;
+  }
+  return { median: bosses > 0 ? weighted / bosses : null, bosses };
+}
+
+function scopedRoleParse(rows: ParseRowsByDifficulty, role: BenchRole, scope: DifficultyScope): RoleParse {
+  const only = scopeDifficulty(scope);
+  if (only === null) return combinedRoleParse([...rows.values()], role);
+  const row = rows.get(only);
+  return row ? roleParse(row, role) : { median: null, bosses: 0 };
 }
 
 function readRoleParse(rankings: WclZoneRankings | null | undefined): RoleParse {
@@ -194,13 +229,14 @@ function readRoleParse(rankings: WclZoneRankings | null | undefined): RoleParse 
   return { median: bosses > 0 && typeof median === 'number' && Number.isFinite(median) ? median : null, bosses };
 }
 
-/** Role with the most ranked bosses; ties go DPS, then healer, then tank. */
-function pickAutoRole(row: ParseRow | undefined): BenchRole {
-  if (!row) return 'dps';
-  const rankedBosses = (role: BenchRole) => {
-    const parse = roleParse(row, role);
-    return parse.median === null ? 0 : parse.bosses;
-  };
+/**
+ * Role with the most ranked bosses across Heroic and Mythic together; ties go
+ * DPS, then healer, then tank. Deliberately ignores the page's difficulty
+ * scope, so switching views never changes which role a raider is scored in.
+ */
+function pickAutoRole(rows: ParseRowsByDifficulty | undefined): BenchRole {
+  if (!rows || rows.size === 0) return 'dps';
+  const rankedBosses = (role: BenchRole) => combinedRoleParse([...rows.values()], role).bosses;
   return BENCH_ROLES.reduce((best, role) => (rankedBosses(role) > rankedBosses(best) ? role : best), 'dps' as BenchRole);
 }
 
@@ -437,16 +473,27 @@ async function loadBenchFlags(db: D1Database, charIds: number[]): Promise<Map<nu
   return out;
 }
 
-async function loadParseRows(db: D1Database, charIds: number[]): Promise<Map<number, ParseRow>> {
-  const out = new Map<number, ParseRow>();
+async function loadParseRows(db: D1Database, charIds: number[]): Promise<Map<number, ParseRowsByDifficulty>> {
+  const out = new Map<number, ParseRowsByDifficulty>();
   for (const ids of chunk(charIds, D1_PARAM_CHUNK)) {
     const result = await db
       .prepare(`SELECT * FROM bench_parses WHERE blizzard_char_id IN (${ids.map(() => '?').join(', ')})`)
       .bind(...ids)
       .all<ParseRow>();
-    for (const row of result.results ?? []) out.set(Number(row.blizzard_char_id), row);
+    for (const row of result.results ?? []) {
+      const charId = Number(row.blizzard_char_id);
+      const byDifficulty = out.get(charId) ?? new Map<number, ParseRow>();
+      byDifficulty.set(Number(row.difficulty), row);
+      out.set(charId, byDifficulty);
+    }
   }
   return out;
+}
+
+/** Oldest sync across every tracked difficulty; 0 when any difficulty was never fetched. */
+function parseSyncedAt(rows: ParseRowsByDifficulty | undefined): number {
+  if (!rows) return 0;
+  return Math.min(...BENCH_PARSE_DIFFICULTIES.map((difficulty) => Number(rows.get(difficulty)?.synced_at ?? 0)));
 }
 
 function vaultRaidSlots(label: string | null): Array<number | null> {
@@ -537,41 +584,53 @@ async function loadBenchMetrics(db: D1Database, charIds: number[]): Promise<Map<
   return out;
 }
 
+interface FetchedParse {
+  found: boolean;
+  /** Keyed by WCL difficulty id. */
+  byDifficulty: Map<number, { dps: RoleParse; healer: RoleParse; tank: RoleParse }>;
+}
+
 async function fetchParseBatch(
   accessToken: string,
   zoneId: number,
   batch: Array<{ charId: number; name: string; realmSlug: string }>
-): Promise<Map<number, { found: boolean; dps: RoleParse; healer: RoleParse; tank: RoleParse }> | null> {
-  const variableDefs: string[] = ['$zone: Int!', '$difficulty: Int!', '$region: String!'];
+): Promise<Map<number, FetchedParse> | null> {
+  const variableDefs: string[] = ['$zone: Int!', '$region: String!'];
   const fields: string[] = [];
-  const variables: Record<string, unknown> = { zone: zoneId, difficulty: BENCH_PARSE_DIFFICULTY, region: WCL_SERVER_REGION };
-  const rankingArgs = 'zoneID: $zone, difficulty: $difficulty, byBracket: true';
+  const variables: Record<string, unknown> = { zone: zoneId, region: WCL_SERVER_REGION };
   batch.forEach((entry, index) => {
     variableDefs.push(`$n${index}: String!`, `$s${index}: String!`);
     variables[`n${index}`] = entry.name;
     variables[`s${index}`] = entry.realmSlug;
+    const rankings = BENCH_PARSE_DIFFICULTIES.map((difficulty) => {
+      const rankingArgs = `zoneID: $zone, difficulty: ${difficulty}, byBracket: true`;
+      return `
+        d${difficulty}_dps: zoneRankings(${rankingArgs}, metric: dps, role: DPS)
+        d${difficulty}_healer: zoneRankings(${rankingArgs}, metric: hps, role: Healer)
+        d${difficulty}_tank: zoneRankings(${rankingArgs}, metric: dps, role: Tank)`;
+    }).join('');
     fields.push(`
-      c${index}: character(name: $n${index}, serverSlug: $s${index}, serverRegion: $region) {
-        dps: zoneRankings(${rankingArgs}, metric: dps, role: DPS)
-        healer: zoneRankings(${rankingArgs}, metric: hps, role: Healer)
-        tank: zoneRankings(${rankingArgs}, metric: dps, role: Tank)
+      c${index}: character(name: $n${index}, serverSlug: $s${index}, serverRegion: $region) {${rankings}
       }`);
   });
 
   const payload = await queryWcl<{
-    characterData?: Record<string, { dps?: WclZoneRankings; healer?: WclZoneRankings; tank?: WclZoneRankings } | null>;
+    characterData?: Record<string, Record<string, WclZoneRankings | undefined> | null>;
   }>(accessToken, `query BenchParses(${variableDefs.join(', ')}) { characterData { ${fields.join('\n')} } }`, variables);
   if (!payload?.characterData) return null;
 
-  const out = new Map<number, { found: boolean; dps: RoleParse; healer: RoleParse; tank: RoleParse }>();
+  const out = new Map<number, FetchedParse>();
   batch.forEach((entry, index) => {
     const character = payload.characterData?.[`c${index}`] ?? null;
-    out.set(entry.charId, {
-      found: character !== null,
-      dps: readRoleParse(character?.dps),
-      healer: readRoleParse(character?.healer),
-      tank: readRoleParse(character?.tank),
-    });
+    const byDifficulty = new Map<number, { dps: RoleParse; healer: RoleParse; tank: RoleParse }>();
+    for (const difficulty of BENCH_PARSE_DIFFICULTIES) {
+      byDifficulty.set(difficulty, {
+        dps: readRoleParse(character?.[`d${difficulty}_dps`]),
+        healer: readRoleParse(character?.[`d${difficulty}_healer`]),
+        tank: readRoleParse(character?.[`d${difficulty}_tank`]),
+      });
+    }
+    out.set(entry.charId, { found: character !== null, byDifficulty });
   });
   return out;
 }
@@ -621,9 +680,9 @@ export async function refreshBenchParses(
   // zone (new season) replaces everyone's parses within that window.
   const pending = charIds
     .filter((charId) => slugs.has(charId))
-    .filter((charId) => options?.force || (existing.get(charId)?.synced_at ?? 0) < staleBefore)
-    // Never-fetched characters first, then oldest.
-    .sort((a, b) => (existing.get(a)?.synced_at ?? 0) - (existing.get(b)?.synced_at ?? 0))
+    .filter((charId) => options?.force || parseSyncedAt(existing.get(charId)) < staleBefore)
+    // Never-fetched characters (or ones missing a difficulty) first, then oldest.
+    .sort((a, b) => parseSyncedAt(existing.get(a)) - parseSyncedAt(existing.get(b)))
     .map((charId) => ({ charId, ...slugs.get(charId)! }));
   result.remaining = pending.length;
   if (pending.length === 0) {
@@ -644,16 +703,16 @@ export async function refreshBenchParses(
       const parses = await fetchParseBatch(accessToken, zoneId, batch);
       if (!parses) throw new Error('Warcraft Logs returned no character data.');
       await db.batch(
-        [...parses.entries()].map(([charId, parse]) =>
+        [...parses.entries()].flatMap(([charId, parse]) =>
+          [...parse.byDifficulty.entries()].map(([difficulty, roles]) =>
           db
             .prepare(
               `INSERT INTO bench_parses (
                  blizzard_char_id, zone_id, difficulty, wcl_found,
                  dps_median, dps_bosses, healer_median, healer_bosses, tank_median, tank_bosses, synced_at
                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
-               ON CONFLICT(blizzard_char_id) DO UPDATE SET
+               ON CONFLICT(blizzard_char_id, difficulty) DO UPDATE SET
                  zone_id = excluded.zone_id,
-                 difficulty = excluded.difficulty,
                  wcl_found = excluded.wcl_found,
                  dps_median = excluded.dps_median,
                  dps_bosses = excluded.dps_bosses,
@@ -666,15 +725,16 @@ export async function refreshBenchParses(
             .bind(
               charId,
               zoneId,
-              BENCH_PARSE_DIFFICULTY,
+              difficulty,
               parse.found ? 1 : 0,
-              parse.dps.median,
-              parse.dps.bosses,
-              parse.healer.median,
-              parse.healer.bosses,
-              parse.tank.median,
-              parse.tank.bosses
+              roles.dps.median,
+              roles.dps.bosses,
+              roles.healer.median,
+              roles.healer.bosses,
+              roles.tank.median,
+              roles.tank.bosses
             )
+          )
         )
       );
       result.processed += batch.length;
@@ -699,9 +759,14 @@ export async function refreshBenchParses(
   return result;
 }
 
-export async function getBenchData(dbInput?: D1Database): Promise<BenchData> {
+/**
+ * Bench rows for one difficulty scope: Death Analysis, Pull Score, and the
+ * WCL Parse reference all read the same scope. Raid Comp passes its saved
+ * officer setting; Parse Analysis passes the page's toggle.
+ */
+export async function getBenchData(dbInput?: D1Database, scope: DifficultyScope = 'combined'): Promise<BenchData> {
   const db = getDatabase(dbInput);
-  const summary = await getDeathAnalysisSummary(db);
+  const summary = await getDeathAnalysisSummary(db, scope);
   const charIds = benchCandidates(summary).map((entry) => entry.blizzardCharId);
 
   const [parseRows, overrideResult, mechanicRoles, benchFlags, metrics, pullScoreRows] = await Promise.all([
@@ -710,7 +775,7 @@ export async function getBenchData(dbInput?: D1Database): Promise<BenchData> {
     loadMechanicRoles(db, charIds),
     loadBenchFlags(db, charIds),
     loadBenchMetrics(db, charIds),
-    getPullScoreRows(db),
+    getPullScoreRows(db, scope),
   ]);
   const overrides = new Map<number, BenchRole>();
   for (const row of overrideResult.results ?? []) {
@@ -725,12 +790,16 @@ export async function getBenchData(dbInput?: D1Database): Promise<BenchData> {
   }
 
   const toRaider = (entry: DeathAnalysisEntry): BenchRaider => {
-    const row = parseRows.get(entry.blizzardCharId);
-    const autoRole = pickAutoRole(row);
+    const rows = parseRows.get(entry.blizzardCharId);
+    const autoRole = pickAutoRole(rows);
     const roleOverride = overrides.get(entry.blizzardCharId) ?? null;
     const role = roleOverride ?? autoRole;
-    const parse = row ? roleParse(row, role) : null;
-    const wclParseStatus: BenchParseStatus = !row ? 'pending' : !row.wcl_found ? 'not-found' : parse?.median == null ? 'no-role-parse' : 'ok';
+    const only = scopeDifficulty(scope);
+    // Pending until every difficulty the scope reads has been fetched once.
+    const fetched = rows && (only === null ? rows.size > 0 : rows.has(only));
+    const parse = rows ? scopedRoleParse(rows, role, scope) : null;
+    const found = rows ? [...rows.values()].some((row) => Boolean(row.wcl_found)) : false;
+    const wclParseStatus: BenchParseStatus = !fetched ? 'pending' : !found ? 'not-found' : parse?.median == null ? 'no-role-parse' : 'ok';
     const flags = benchFlags.get(entry.blizzardCharId) ?? noFlags;
     const scores = metrics.get(entry.blizzardCharId) ?? { vaultScore: 0, preparednessScore: 0, upgradesCompleted: 0, upgradesMissing: null };
     const roleRows = (pullScoreRowsByChar.get(entry.blizzardCharId) ?? []).filter((pullRow) => pullRow.role === role);
@@ -767,8 +836,9 @@ export async function getBenchData(dbInput?: D1Database): Promise<BenchData> {
     };
   };
 
-  const syncedAt = [...parseRows.values()].map((row) => Number(row.synced_at));
+  const syncedAt = [...parseRows.values()].flatMap((rows) => [...rows.values()].map((row) => Number(row.synced_at)));
   return {
+    scope,
     summary,
     lastParseSyncAt: syncedAt.length > 0 ? Math.max(...syncedAt) : null,
     ranked: summary.rankings.map(toRaider),

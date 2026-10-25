@@ -16,6 +16,7 @@ import {
   requireAccessToken,
   type DeathAnalysisReportRow,
 } from './death-analysis';
+import { TRACKED_DIFFICULTIES, scopeIncludes, type DifficultyScope } from './raid-difficulty';
 
 // Pull Score: WCL's own per-kill percentile parse (bracketPercent, already
 // spec/boss/item-level-bracket normalized by WCL), decay-weighted by us
@@ -37,12 +38,14 @@ import {
 // in mechanics-analysis.ts for the sync shape.
 
 /**
- * WCL difficulty ids scored. Heroic only for now. When Mythic starts, add 5
- * (or switch to [5]) — because a Pull Score is relative *within one pull*,
- * Heroic and Mythic rows are safe to mix, and Heroic ages out on its own via
- * the recency half-life and the Death Analysis 60-day prune.
+ * WCL difficulty ids scored. Both Heroic and Mythic are synced, and pages
+ * choose Heroic, Mythic, or Combined at read time (getPullScoreRows' scope).
+ * Pull Score is WCL's bracketPercent, which WCL computes against each
+ * difficulty's own worldwide population, so Combined averages percentiles
+ * from two different populations — a Mythic 70 and a Heroic 70 are not the
+ * same achievement. Prefer a single-difficulty scope when comparing raiders.
  */
-export const PULL_SCORE_DIFFICULTIES = new Set([4]);
+export const PULL_SCORE_DIFFICULTIES = new Set<number>(TRACKED_DIFFICULTIES);
 /** Fewer than this many *scored* kills (bracketPercent present) in a role is "too few to score", not a fallback to the WCL median (different scale). */
 export const PULL_SCORE_MIN_PULLS = 5;
 
@@ -68,6 +71,8 @@ interface PullScoreCursor {
   syncedAt: number;
   /** Last time a rankings query actually ran — distinct from syncedAt, which every fights-sync write also bumps. */
   rankingsAttemptedAt: number;
+  /** False on cursors written before Mythic was synced — see needsMythicBackfill. */
+  includesMythic: boolean;
 }
 
 interface PullScoreFightRow {
@@ -158,7 +163,7 @@ async function loadCursors(db: D1Database, codes: string[]): Promise<Map<string,
   for (const codesChunk of chunk(codes, D1_PARAM_CHUNK)) {
     const result = await db
       .prepare(
-        `SELECT report_code, total_fights, synced_fights, rankings_synced, synced_at, rankings_attempted_at
+        `SELECT report_code, total_fights, synced_fights, rankings_synced, synced_at, rankings_attempted_at, includes_mythic
            FROM pull_score_reports
           WHERE report_code IN (${codesChunk.map(() => '?').join(', ')})`
       )
@@ -172,10 +177,20 @@ async function loadCursors(db: D1Database, codes: string[]): Promise<Map<string,
         rankingsSynced: toInt(row.rankings_synced) === 1,
         syncedAt: toInt(row.synced_at),
         rankingsAttemptedAt: toInt(row.rankings_attempted_at),
+        includesMythic: toInt(row.includes_mythic) === 1,
       });
     }
   }
   return out;
+}
+
+/**
+ * A report synced before Mythic was tracked has only its Heroic fights stored.
+ * If Death Analysis says it holds Mythic pulls, it needs a fresh fights sync.
+ * mythicPulls 0 or null (not backfilled yet) leaves the Heroic data alone.
+ */
+function needsMythicBackfill(report: DeathAnalysisReportRow, cursor: PullScoreCursor | undefined): boolean {
+  return cursor !== undefined && !cursor.includesMythic && (report.mythicPulls ?? 0) > 0;
 }
 
 function pendingPhase(
@@ -183,7 +198,7 @@ function pendingPhase(
   cursor: PullScoreCursor | undefined,
   nowUtc: number
 ): 'fights' | 'rankings' | null {
-  if (!cursor || cursor.syncedAt < report.syncedAt) return 'fights';
+  if (!cursor || cursor.syncedAt < report.syncedAt || needsMythicBackfill(report, cursor)) return 'fights';
   if (cursor.syncedFights < cursor.totalFights) return 'fights';
   if (!cursor.rankingsSynced) {
     // Every report gets one unconditional attempt, however old — by the time a
@@ -244,7 +259,8 @@ async function syncReportFightsBatch(
     .sort((a, b) => toPositiveInt(a.id) - toPositiveInt(b.id));
 
   // A live log that grew since our last touch (or a report we've never synced) starts over.
-  const startFresh = !cursor || cursor.syncedAt < report.syncedAt;
+  // So does a report synced before Mythic: its synced_fights index predates the Mythic fights now in the list.
+  const startFresh = !cursor || cursor.syncedAt < report.syncedAt || needsMythicBackfill(report, cursor);
   const startIndex = startFresh ? 0 : Math.min(cursor!.syncedFights, qualifying.length);
   const batch = qualifying.slice(startIndex, startIndex + PULL_SCORE_FIGHT_BATCH_SIZE);
 
@@ -374,14 +390,15 @@ async function syncReportFightsBatch(
   statements.push(
     db
       .prepare(
-        `INSERT INTO pull_score_reports (report_code, total_fights, synced_fights, rankings_synced, synced_at, rankings_attempted_at)
-         VALUES (?, ?, ?, ?, unixepoch(), ?)
+        `INSERT INTO pull_score_reports (report_code, total_fights, synced_fights, rankings_synced, synced_at, rankings_attempted_at, includes_mythic)
+         VALUES (?, ?, ?, ?, unixepoch(), ?, 1)
          ON CONFLICT(report_code) DO UPDATE SET
            total_fights = excluded.total_fights,
            synced_fights = excluded.synced_fights,
            rankings_synced = excluded.rankings_synced,
            synced_at = excluded.synced_at,
-           rankings_attempted_at = excluded.rankings_attempted_at`
+           rankings_attempted_at = excluded.rankings_attempted_at,
+           includes_mythic = excluded.includes_mythic`
       )
       .bind(report.code, qualifying.length, syncedFights, rankingsSynced, rankingsAttemptedAt)
   );
@@ -472,8 +489,8 @@ export interface PullScoreRefreshResult {
 }
 
 /**
- * Syncs Pull Score rows for canonical Death Analysis reports (Heroic, >= 30s
- * pulls, kills and wipes). Each call advances at most a few fights/reports —
+ * Syncs Pull Score rows for canonical Death Analysis reports (Heroic and
+ * Mythic, >= 30s pulls, kills and wipes). Each call advances at most a few fights/reports —
  * a long night finishes over several cron ticks via the pull_score_reports
  * cursor. Also prunes rows for reports Death Analysis no longer keeps or that
  * are no longer canonical for their night.
@@ -591,9 +608,10 @@ export interface PullScoreRow {
  * Every Pull Score row for the current canonical reports (all raiders, all
  * roles). Callers filter/group as needed — see aggregatePullScoreRows and
  * getPullScoreSummary. Never reads rows for a report that isn't currently
- * canonical for its night (an officer override moves the row set).
+ * canonical for its night (an officer override moves the row set). scope picks
+ * Heroic, Mythic, or both; Combined mixes two different WCL percentile populations.
  */
-export async function getPullScoreRows(dbInput?: D1Database): Promise<PullScoreRow[]> {
+export async function getPullScoreRows(dbInput?: D1Database, scope: DifficultyScope = 'combined'): Promise<PullScoreRow[]> {
   const db = getDatabase(dbInput);
   const nights = await getDeathAnalysisNights(db);
   const canonicalCodes = nights
@@ -615,6 +633,7 @@ export async function getPullScoreRows(dbInput?: D1Database): Promise<PullScoreR
       .all<Record<string, unknown>>();
     for (const row of result.results ?? []) {
       if (!isPullRole(row.role)) continue;
+      if (!scopeIncludes(scope, toPositiveInt(row.difficulty))) continue;
       rows.push({
         reportCode: String(row.report_code),
         fightId: toPositiveInt(row.fight_id),
@@ -686,8 +705,12 @@ export function toPullHistoryEntries(rows: PullScoreRow[]): PullHistoryEntry[] {
 }
 
 /** One raider's pull history, newest first, for the profile panel and the parse-analysis expanded row. */
-export async function getPullHistory(dbInput: D1Database | undefined, blizzardCharId: number): Promise<PullHistoryEntry[]> {
-  const rows = (await getPullScoreRows(dbInput)).filter((row) => row.blizzardCharId === blizzardCharId);
+export async function getPullHistory(
+  dbInput: D1Database | undefined,
+  blizzardCharId: number,
+  scope: DifficultyScope = 'combined'
+): Promise<PullHistoryEntry[]> {
+  const rows = (await getPullScoreRows(dbInput, scope)).filter((row) => row.blizzardCharId === blizzardCharId);
   return toPullHistoryEntries(rows);
 }
 

@@ -3,7 +3,8 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import { env } from 'cloudflare:workers';
-import { BENCH_PARSE_DIFFICULTY, getBenchData, type BenchRaider } from '../lib/bench';
+import { getBenchData, type BenchRaider } from '../lib/bench';
+import { DIFFICULTY_SCOPES, DIFFICULTY_SCOPE_LABELS, scopeDescription } from '../lib/raid-difficulty';
 import { getBuffMinimums, getRaidCompAssignments, getRaidCompLoadouts, getRaidCompManualOverrideIds, getRaidCompSettings, getTempRaidCompCandidates, getUtilityMinimums } from '../lib/raid-comp';
 import { ALL_UTILITY, CONFIGURABLE_RAID_BUFFS, DEFAULT_CONFIGURABLE_BUFF_MINIMUM } from '../lib/raid-teams';
 import { DEATH_ANALYSIS_RAID_NAME } from '../lib/death-analysis';
@@ -20,9 +21,10 @@ if (!Astro.locals.isGuildMember) {
 }
 
 const isOfficer = Astro.locals.isOfficer;
-const [bench, settings, assignments, manualOverrideIds, utilityMinimums, buffMinimums, temporaryCandidates, loadouts] = await Promise.all([
-  getBenchData(env.DB),
-  getRaidCompSettings(env.DB),
+// The saved difficulty setting decides which deaths/Pull Scores the Roster is scored on.
+const settings = await getRaidCompSettings(env.DB);
+const [bench, assignments, manualOverrideIds, utilityMinimums, buffMinimums, temporaryCandidates, loadouts] = await Promise.all([
+  getBenchData(env.DB, settings.difficultyScope),
   getRaidCompAssignments(env.DB),
   getRaidCompManualOverrideIds(env.DB),
   getUtilityMinimums(env.DB),
@@ -32,8 +34,7 @@ const [bench, settings, assignments, manualOverrideIds, utilityMinimums, buffMin
 ]);
 
 const statusParam = new URL(Astro.request.url).searchParams.get('status');
-const DIFFICULTY_LABELS: Record<number, string> = { 3: 'Normal', 4: 'Heroic', 5: 'Mythic' };
-const difficultyLabel = DIFFICULTY_LABELS[BENCH_PARSE_DIFFICULTY] ?? 'Heroic';
+const difficultyLabel = scopeDescription(settings.difficultyScope);
 const timestampLabel = (epoch: number | null) =>
   epoch ? `${new Date(epoch * 1000).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET` : 'Never';
 const pullScoreMinPulls = PULL_SCORE_MIN_PULLS;
@@ -347,6 +348,16 @@ const clientData = {
               <label><input type="radio" name="bench-scale" value="percentile" checked={settings.scale === 'percentile'} disabled={!isOfficer} /> Guild percentile</label>
               <label><input type="radio" name="bench-scale" value="raw" checked={settings.scale === 'raw'} disabled={!isOfficer} /> Raw Pull Score</label>
             </div>
+          </fieldset>
+
+          <fieldset class="control">
+            <legend class="control-label">Score using</legend>
+            <div class="segmented">
+              {DIFFICULTY_SCOPES.map((scope) => (
+                <label><input type="radio" name="bench-difficulty" value={scope} checked={settings.difficultyScope === scope} disabled={!isOfficer} /> {DIFFICULTY_SCOPE_LABELS[scope]}</label>
+              ))}
+            </div>
+            <small class="control-help">Which difficulty's deaths, Pull Score, and WCL Parse feed the Roster. Takes effect on Save &amp; Regenerate.</small>
           </fieldset>
 
           <p id="bench-formula" class="formula"></p>
@@ -1613,6 +1624,7 @@ const clientData = {
         preparednessWeight: currentSettings().preparednessWeight,
         upgradesWeight: currentSettings().upgradesWeight,
         scale: currentSettings().scale,
+        difficultyScope: (document.querySelector('input[name="bench-difficulty"]:checked') as HTMLInputElement | null)?.value ?? 'combined',
       };
       if (
         ![body.parseWeight, body.deathWeight, body.vaultWeight, body.preparednessWeight, body.upgradesWeight].every(
@@ -2182,6 +2194,13 @@ const clientData = {
     display: flex;
     flex-wrap: wrap;
     gap: 0.35rem;
+  }
+
+  .control-help {
+    max-width: 22rem;
+    color: var(--muted);
+    font-size: 0.78rem;
+    line-height: 1.4;
   }
 
   .segmented label {

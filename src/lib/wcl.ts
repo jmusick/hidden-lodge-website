@@ -38,10 +38,20 @@ export interface WclDeathEventRow {
   fightId: number;
   encounterId: number;
   blizzardCharId: number;
+  /** WCL difficulty id of the fight. */
+  difficulty: number;
   /** 1-4; position within the fight, matching the death_analysis_stats cap. */
   deathPosition: number;
   /** Milliseconds from the start of the fight to the death. */
   deathOffsetMs: number;
+}
+
+/** One difficulty's slice of fetchReportFightStats' death-scoped fights. */
+export interface WclDifficultyFightStats {
+  scopedFightCount: number;
+  scopedKillCount: number;
+  deathStatsByCharId: Map<number, WclDeathAggregate>;
+  specIdByCharId: Map<number, number>;
 }
 
 export interface WclAuthConfig {
@@ -365,6 +375,8 @@ export async function fetchReportFightStats(
   deathEvents: WclDeathEventRow[];
   /** Spec id each character played most across the death-scoped fights (from CombatantInfo). */
   specIdByCharId: Map<number, number>;
+  /** The death-scoped stats again, split by WCL difficulty id (only difficulties with scoped fights appear). */
+  byDifficulty: Map<number, WclDifficultyFightStats>;
   reportStartUtc: number | null;
   reportEndUtc: number | null;
 }> {
@@ -435,6 +447,7 @@ export async function fetchReportFightStats(
       deathStatsByCharId: new Map(),
       deathEvents: [],
       specIdByCharId: new Map(),
+      byDifficulty: new Map(),
       reportStartUtc: reportStartMs > 0 ? Math.floor(reportStartMs / 1000) : null,
       reportEndUtc: reportEndMs > 0 ? Math.floor(reportEndMs / 1000) : null,
     };
@@ -486,6 +499,9 @@ export async function fetchReportFightStats(
   const fightStartById = new Map<number, number>(
     fights.map((fight) => [Number(fight.id), Number(fight.startTime ?? 0)])
   );
+  const difficultyByFightId = new Map<number, number>(
+    fights.map((fight) => [Number(fight.id), Number(fight.difficulty ?? 0)])
+  );
   const attemptedEncounterIds = new Set<number>(
     fights.map((fight) => Number(fight.encounterID ?? 0)).filter((encounterId) => encounterId > 0)
   );
@@ -502,6 +518,7 @@ export async function fetchReportFightStats(
   const participantsByFight = new Map<number, Set<string>>();
   const participantsByFightChar = new Map<number, Set<number>>();
   const specFightsByCharId = new Map<number, Map<number, number>>();
+  const specFightsByDifficulty = new Map<number, Map<number, Map<number, number>>>();
   let nextStart = Number.isFinite(minFightStart) ? minFightStart : 0;
   const absoluteEnd = Math.max(nextStart, maxFightEnd);
 
@@ -567,6 +584,13 @@ export async function fetchReportFightStats(
         const specFights = specFightsByCharId.get(sourceCharId) ?? new Map<number, number>();
         specFights.set(specId, (specFights.get(specId) ?? 0) + 1);
         specFightsByCharId.set(sourceCharId, specFights);
+
+        const difficulty = difficultyByFightId.get(fightId) ?? 0;
+        const byChar = specFightsByDifficulty.get(difficulty) ?? new Map<number, Map<number, number>>();
+        const difficultySpecFights = byChar.get(sourceCharId) ?? new Map<number, number>();
+        difficultySpecFights.set(specId, (difficultySpecFights.get(specId) ?? 0) + 1);
+        byChar.set(sourceCharId, difficultySpecFights);
+        specFightsByDifficulty.set(difficulty, byChar);
       }
     }
 
@@ -580,6 +604,14 @@ export async function fetchReportFightStats(
   nextStart = Number.isFinite(minFightStart) ? minFightStart : 0;
   const deathPositionByFight = new Map<number, number>();
   const deathStatsByCharIdMutable = new Map<number, WclDeathAggregate>();
+  const deathStatsByDifficulty = new Map<number, Map<number, WclDeathAggregate>>();
+  const difficultyAggregate = (difficulty: number, blizzardCharId: number): WclDeathAggregate => {
+    const byChar = deathStatsByDifficulty.get(difficulty) ?? new Map<number, WclDeathAggregate>();
+    deathStatsByDifficulty.set(difficulty, byChar);
+    const aggregate = byChar.get(blizzardCharId) ?? createDeathAggregate();
+    byChar.set(blizzardCharId, aggregate);
+    return aggregate;
+  };
   const deathEvents: WclDeathEventRow[] = [];
 
   while (nextStart <= absoluteEnd) {
@@ -632,23 +664,25 @@ export async function fetchReportFightStats(
 
       const fightStartMs = fightStartById.get(fightId) ?? 0;
       const eventTimestamp = Number(event.timestamp ?? 0);
+      const difficulty = difficultyByFightId.get(fightId) ?? 0;
       deathEvents.push({
         fightId,
         encounterId: encounterByFightId.get(fightId) ?? 0,
         blizzardCharId: targetCharId,
+        difficulty,
         deathPosition,
         deathOffsetMs: fightStartMs > 0 && eventTimestamp > 0 ? Math.max(0, eventTimestamp - fightStartMs) : 0,
       });
 
       const aggregate = deathStatsByCharIdMutable.get(targetCharId) ?? createDeathAggregate();
-      aggregate.totalDeaths += 1;
-
-      if (deathPosition === 1) aggregate.firstDeathCount += 1;
-      else if (deathPosition === 2) aggregate.secondDeathCount += 1;
-      else if (deathPosition === 3) aggregate.thirdDeathCount += 1;
-      else if (deathPosition === 4) aggregate.fourthDeathCount += 1;
-
       deathStatsByCharIdMutable.set(targetCharId, aggregate);
+      for (const target of [aggregate, difficultyAggregate(difficulty, targetCharId)]) {
+        target.totalDeaths += 1;
+        if (deathPosition === 1) target.firstDeathCount += 1;
+        else if (deathPosition === 2) target.secondDeathCount += 1;
+        else if (deathPosition === 3) target.thirdDeathCount += 1;
+        else if (deathPosition === 4) target.fourthDeathCount += 1;
+      }
     }
 
     const nextPage = Number(page?.reportData?.report?.events?.nextPageTimestamp ?? 0);
@@ -689,10 +723,12 @@ export async function fetchReportFightStats(
 
   for (const [fightId, participants] of participantsByFightChar.entries()) {
     if (!deathScopedFightIds.has(fightId)) continue;
+    const difficulty = difficultyByFightId.get(fightId) ?? 0;
     for (const blizzardCharId of participants) {
       const aggregate = deathStatsByCharIdMutable.get(blizzardCharId) ?? createDeathAggregate();
       aggregate.fightsPresent += 1;
       deathStatsByCharIdMutable.set(blizzardCharId, aggregate);
+      difficultyAggregate(difficulty, blizzardCharId).fightsPresent += 1;
     }
   }
 
@@ -742,10 +778,30 @@ export async function fetchReportFightStats(
     });
   }
 
-  const specIdByCharId = new Map<number, number>();
-  for (const [blizzardCharId, specFights] of specFightsByCharId) {
-    const [topSpecId] = [...specFights.entries()].sort((a, b) => b[1] - a[1])[0];
-    specIdByCharId.set(blizzardCharId, topSpecId);
+  const topSpecs = (specFights: Map<number, Map<number, number>>): Map<number, number> => {
+    const out = new Map<number, number>();
+    for (const [blizzardCharId, fightsBySpec] of specFights) {
+      const [topSpecId] = [...fightsBySpec.entries()].sort((a, b) => b[1] - a[1])[0];
+      out.set(blizzardCharId, topSpecId);
+    }
+    return out;
+  };
+  const specIdByCharId = topSpecs(specFightsByCharId);
+
+  const byDifficulty = new Map<number, WclDifficultyFightStats>();
+  for (const fight of fights) {
+    const fightId = Number(fight.id);
+    if (!deathScopedFightIds.has(fightId)) continue;
+    const difficulty = difficultyByFightId.get(fightId) ?? 0;
+    const entry = byDifficulty.get(difficulty) ?? {
+      scopedFightCount: 0,
+      scopedKillCount: 0,
+      deathStatsByCharId: deathStatsByDifficulty.get(difficulty) ?? new Map<number, WclDeathAggregate>(),
+      specIdByCharId: topSpecs(specFightsByDifficulty.get(difficulty) ?? new Map()),
+    };
+    entry.scopedFightCount += 1;
+    if (fight.kill === true) entry.scopedKillCount += 1;
+    byDifficulty.set(difficulty, entry);
   }
 
   return {
@@ -760,6 +816,7 @@ export async function fetchReportFightStats(
     deathStatsByCharId,
     deathEvents,
     specIdByCharId,
+    byDifficulty,
     reportStartUtc: reportStartMs > 0 ? Math.floor(reportStartMs / 1000) : null,
     reportEndUtc: reportEndMs > 0 ? Math.floor(reportEndMs / 1000) : null,
   };

@@ -17,9 +17,10 @@ import {
   type PullScoreRole,
   type PullScoreSummaryEntry,
 } from '../lib/pull-scores';
-import { BENCH_PARSE_DIFFICULTY } from '../lib/bench';
 import { DEATH_ANALYSIS_RAID_NAME } from '../lib/death-analysis';
 import { FEATURE_FLAGS } from '../lib/feature-flags';
+import { parseDifficultyScope, scopeDescription } from '../lib/raid-difficulty';
+import DifficultyToggle from '../components/DifficultyToggle.astro';
 
 if (!FEATURE_FLAGS.tools || !FEATURE_FLAGS.deathAnalysis || !FEATURE_FLAGS.parseAnalysis) {
   return Astro.redirect('/');
@@ -29,15 +30,15 @@ if (!Astro.locals.isGuildMember) {
   return Astro.redirect('/auth/login');
 }
 
-const DIFFICULTY_LABELS: Record<number, string> = { 3: 'Normal', 4: 'Heroic', 5: 'Mythic' };
-const difficultyLabel = DIFFICULTY_LABELS[BENCH_PARSE_DIFFICULTY] ?? 'Heroic';
+const scope = parseDifficultyScope(Astro.url.searchParams.get('difficulty'));
+const difficultyLabel = scopeDescription(scope);
 
-const bench = await getBenchData(env.DB);
+const bench = await getBenchData(env.DB, scope);
 const allRaiders: BenchRaider[] = [...bench.ranked, ...bench.belowMinimum];
 const raiderByCharId = new Map(allRaiders.map((raider) => [raider.blizzardCharId, raider]));
 const effectiveRoleByCharId = new Map<number, PullScoreRole>(allRaiders.map((raider) => [raider.blizzardCharId, raider.role]));
 
-const rows = await getPullScoreRows(env.DB);
+const rows = await getPullScoreRows(env.DB, scope);
 const rowsByChar = new Map<number, typeof rows>();
 for (const row of rows) {
   const list = rowsByChar.get(row.blizzardCharId) ?? [];
@@ -96,7 +97,10 @@ const roleColumns: ReadonlyArray<{ label: string; help?: string; className?: str
   {
     label: 'WCL Parse (median)',
     className: 'num reference',
-    help: `Warcraft Logs' own flat, all-time median parse for this role (same value shown on the Raid Composition Bench) — reference only, this is the number Pull Score replaces for scoring.`,
+    help:
+      scope === 'combined'
+        ? `Warcraft Logs' own flat, all-time median parse for this role. WCL ranks Heroic and Mythic separately, so Combined is the two medians weighted by how many bosses each covers — this site's blend, not a WCL number. Reference only; Pull Score replaces it for scoring.`
+        : `Warcraft Logs' own flat, all-time ${difficultyLabel} median parse for this role — reference only, this is the number Pull Score replaces for scoring.`,
   },
   {
     label: 'Trend (14d)',
@@ -111,7 +115,9 @@ const roleColumns: ReadonlyArray<{ label: string; help?: string; className?: str
     <PageHeader
       title="Parse Analysis"
       description={`How ${difficultyLabel} ${DEATH_ANALYSIS_RAID_NAME} performance is scored on this site, and how it compares to Warcraft Logs' own Parse.`}
-    />
+    >
+      <DifficultyToggle slot="actions" current={scope} />
+    </PageHeader>
 
     <section class="card how-it-works">
       <h2>How this works</h2>
@@ -129,8 +135,10 @@ const roleColumns: ReadonlyArray<{ label: string; help?: string; className?: str
         move Pull Score. They're still tracked and shown (Pulls, and in each raider's pull history) for attendance context.
       </p>
       <p class="how-it-works-meta">
-        Guild logs only, {difficultyLabel} only, kills at least 30 seconds long. A raider needs at least {PULL_SCORE_MIN_PULLS} scored
-        kills in a role before Pull Score is shown for it.
+        Guild logs only, {scope === 'combined' ? 'Heroic and Mythic kills together' : `${difficultyLabel} only`}, kills at least 30 seconds
+        long. A raider needs at least {PULL_SCORE_MIN_PULLS} scored kills in a role before Pull Score is shown for it.
+        {scope === 'combined' &&
+          ' Warcraft Logs ranks each difficulty against its own players, so a Combined score averages percentiles from two different pools.'}
       </p>
     </section>
 

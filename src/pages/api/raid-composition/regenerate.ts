@@ -4,6 +4,7 @@ import type { APIContext } from 'astro';
 import { env } from 'cloudflare:workers';
 import { regenerateRaidComp, type RaidCompScale } from '../../../lib/raid-comp';
 import { FEATURE_FLAGS } from '../../../lib/feature-flags';
+import { parseDifficultyScope } from '../../../lib/raid-difficulty';
 
 const MIN = 0;
 const MAX = 40;
@@ -48,6 +49,7 @@ export async function POST(context: APIContext): Promise<Response> {
     preparednessWeight,
     upgradesWeight,
     scale,
+    difficultyScope: parseDifficultyScope(typeof input.difficultyScope === 'string' ? input.difficultyScope : null),
   };
 
   try {
