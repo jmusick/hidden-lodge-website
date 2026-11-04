@@ -34,6 +34,7 @@ const PREPAREDNESS_HISTORY_WINDOW_SECONDS = 14 * 24 * 60 * 60; // 14 days (2 wee
 const PROGRESSION_HISTORY_WINDOW_SECONDS = 28 * 24 * 60 * 60; // 28 days (4 weeks)
 const VAULT_HISTORY_WINDOW_SECONDS = 28 * 24 * 60 * 60; // 28 days (4 weeks)
 const GEAR_HISTORY_WINDOW_SECONDS = 60 * 24 * 60 * 60; // 60 days
+const WEEKLY_ITEM_UPGRADES_WINDOW_SECONDS = 28 * 24 * 60 * 60; // 28 days (4 weeks)
 const DELVES_TOTAL_STAT_ID = 40734;
 /** Items per refresh-cron icon warm; see warmGearIcons(). */
 const GEAR_ICON_WARM_BATCH_SIZE = 20;
@@ -61,17 +62,34 @@ const UPGRADE_TRACK_SEASON_BASE_IDS = [
   12809, // Midnight Season 2 (12.1)
 ] as const;
 
-const UPGRADE_STEPS_BY_BONUS_ID = new Map<number, { current: number; max: number }>(
+interface UpgradeStep {
+  /** 1-based step on the track (1/6 … 6/6). */
+  current: number;
+  max: number;
+  /** Bonus id of the track's first step; identifies the track. */
+  trackBaseId: number;
+}
+
+const UPGRADE_STEPS_BY_BONUS_ID = new Map<number, UpgradeStep>(
   UPGRADE_TRACK_SEASON_BASE_IDS.flatMap((seasonBaseId) =>
     Array.from({ length: UPGRADE_TRACKS_PER_SEASON }, (_, track) => seasonBaseId + track * UPGRADE_TRACK_ID_STRIDE).flatMap(
       (trackBaseId) =>
         Array.from(
           { length: UPGRADE_TRACK_STEPS },
-          (_, step) => [trackBaseId + step, { current: step + 1, max: UPGRADE_TRACK_STEPS }] as const
+          (_, step) => [trackBaseId + step, { current: step + 1, max: UPGRADE_TRACK_STEPS, trackBaseId }] as const
         )
     )
   )
 );
+
+/** The upgrade-track step an item is on, or null for items with no track (crafted, PvP, older seasons). */
+function upgradeStepForBonusIds(bonusIds: readonly number[]): UpgradeStep | null {
+  for (const id of bonusIds) {
+    const step = UPGRADE_STEPS_BY_BONUS_ID.get(id);
+    if (step) return step;
+  }
+  return null;
+}
 
 const ALWAYS_ENCHANTABLE_SLOTS = new Set([
   'HEAD',
@@ -894,11 +912,7 @@ function computeTotalUpgradesMissing(items: BlizzardEquippedItem[]): number {
   let totalMissing = 0;
 
   for (const item of items) {
-    const bonusIds = item.bonus_list ?? [];
-    const matchedUpgradeStep = bonusIds
-      .map((id) => UPGRADE_STEPS_BY_BONUS_ID.get(id))
-      .find((entry): entry is { current: number; max: number } => Boolean(entry));
-
+    const matchedUpgradeStep = upgradeStepForBonusIds(item.bonus_list ?? []);
     if (!matchedUpgradeStep) continue;
     totalMissing += Math.max(0, matchedUpgradeStep.max - matchedUpgradeStep.current);
   }
@@ -1495,6 +1509,64 @@ async function recordGearSlotHistory(
 async function pruneGearSlotHistory(db: D1Database, cutoff: number): Promise<void> {
   await db
     .prepare(`DELETE FROM raider_gear_slot_history WHERE last_seen_at < ?`)
+    .bind(cutoff)
+    .run();
+}
+
+/**
+ * Track each equipped item's upgrade step for the current week (see migration
+ * 0109). Counting per item, rather than from the drop in total missing ranks,
+ * keeps a newly equipped item's unfilled ranks from cancelling out upgrades.
+ *
+ * An item's first row of the week starts from the step it ended last week on,
+ * when there is one. Raiders are refreshed stalest-first, so their first sync
+ * after reset can come hours later; carrying last week's step forward still
+ * credits upgrades made in that gap. A newly equipped item starts at the step
+ * it was first seen at, so an item that drops at 4/6 isn't counted as three
+ * upgrades. last_step only ever rises (upgrades can't be undone).
+ */
+async function recordWeeklyItemUpgrades(
+  db: D1Database,
+  blizzardCharId: number,
+  gear: RaiderGearItem[],
+  now: number
+): Promise<void> {
+  const weekStart = getUsWeeklyResetTimestamp();
+  const priorWeekStart = weekStart - WEEK_SECONDS;
+  const statements = gear.flatMap((item) => {
+    const step = item.itemId ? upgradeStepForBonusIds(item.bonusIds) : null;
+    if (!item.itemId || !step) return [];
+    return [
+      db
+        .prepare(
+          `INSERT INTO raider_weekly_item_upgrades (
+             blizzard_char_id, week_start, slot_key, item_id, track_base_id,
+             first_step, last_step, first_seen_at, last_seen_at
+           )
+           SELECT ?1, ?2, ?3, ?4, ?5,
+                  MIN(?6, COALESCE((
+                    SELECT p.last_step FROM raider_weekly_item_upgrades p
+                     WHERE p.blizzard_char_id = ?1 AND p.week_start = ?7 AND p.slot_key = ?3
+                       AND p.item_id = ?4 AND p.track_base_id = ?5
+                  ), ?6)),
+                  ?6, ?8, ?8
+           WHERE true
+           ON CONFLICT (blizzard_char_id, week_start, slot_key, item_id, track_base_id) DO UPDATE SET
+             last_step = MAX(last_step, excluded.last_step),
+             last_seen_at = excluded.last_seen_at`
+        )
+        .bind(blizzardCharId, weekStart, item.slotKey, item.itemId, step.trackBaseId, step.current, priorWeekStart, now),
+    ];
+  });
+
+  if (statements.length > 0) {
+    await db.batch(statements);
+  }
+}
+
+async function pruneWeeklyItemUpgrades(db: D1Database, cutoff: number): Promise<void> {
+  await db
+    .prepare(`DELETE FROM raider_weekly_item_upgrades WHERE week_start < ?`)
     .bind(cutoff)
     .run();
 }
@@ -2161,6 +2233,11 @@ export async function refreshRaidersCache(
       } catch (error) {
         console.error('Raider gear cache write failed', { charId: source.blizzard_char_id, error });
       }
+      try {
+        await recordWeeklyItemUpgrades(db, source.blizzard_char_id, gearItems, now);
+      } catch (error) {
+        console.error('Weekly item upgrade write failed', { charId: source.blizzard_char_id, error });
+      }
     }
 
     // Record histories independently so one schema drift does not block the other.
@@ -2189,6 +2266,13 @@ export async function refreshRaidersCache(
   // Prune gear slot history older than 60 days
   const gearHistoryCutoff = now - GEAR_HISTORY_WINDOW_SECONDS;
   await pruneGearSlotHistory(db, gearHistoryCutoff);
+
+  // Prune weekly item-upgrade rows for weeks that started over 4 weeks ago
+  try {
+    await pruneWeeklyItemUpgrades(db, now - WEEKLY_ITEM_UPGRADES_WINDOW_SECONDS);
+  } catch (error) {
+    console.error('Weekly item upgrade prune failed', { error });
+  }
 
   if (detailSkippedForTime > 0) {
     console.warn(

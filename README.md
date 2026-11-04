@@ -456,6 +456,7 @@ These handlers remain in the codebase as retired stubs and currently return HTTP
 | `roster_members_cache` | Cached Blizzard guild roster data plus collection stats. Source of truth for `/raiders` (all level-90 rows) |
 | `raider_metrics_cache` | Cached per-raider metrics including iLvl, M+, tier, gems/enchants, crest totals, missing upgrades, and raid progress. Cleared of Season 1 data by `migrations/0065_season1_data_purge.sql`; repopulates after Season 2 starts (`SEASON_2_START_TIMESTAMP` in `src/lib/wow-reset.ts`) |
 | `raider_progression_history` | Rolling history of equipped item level, M+ score, crest totals, and missing upgrades for each raider |
+| `raider_weekly_item_upgrades` | Per-item upgrade steps for each reset week (start-of-week step and highest step seen), 28-day retention. Backs Raid Comp's weekly Upgrades metric |
 | `raider_preparedness_history` | Rolling history of gem/enchant socket coverage per raider (backs the 30-day averages on `raider_metrics_cache`) |
 | `raider_vault_history` | Weekly Great Vault snapshots per raider per reset week |
 | `raider_keystones` | Every observed Mythic+ keystone completion per character; backs weekly/season run counts and vault key levels |

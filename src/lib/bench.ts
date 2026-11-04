@@ -97,7 +97,7 @@ export interface BenchRaider {
   vaultScore: number;
   /** Two-week rolling gem/enchant coverage percentage (current snapshot fallback), before guild-relative ranking. */
   preparednessScore: number;
-  /** Upgrades completed since the weekly reset, based on the drop in missing upgrade ranks. */
+  /** Upgrade steps completed since the weekly reset, counted per equipped item (new gear doesn't offset them). */
   upgradesCompleted: number;
   /** Upgrade ranks still missing across equipped gear right now; 0 means fully upgraded. Null when not yet synced. */
   upgradesMissing: number | null;
@@ -519,30 +519,32 @@ function preparednessScore(row: BenchMetricsRow): number {
   return Math.max(0, Math.min(100, ((socketed + enchanted) / total) * 100));
 }
 
+/**
+ * Upgrade steps each raider has completed since the weekly reset, summed per
+ * item from raider_weekly_item_upgrades (written by the raider refresh; see
+ * recordWeeklyItemUpgrades in raiders.ts). Raiders with no rows yet read 0.
+ */
 async function loadWeeklyUpgradeProgress(db: D1Database, charIds: number[]): Promise<Map<number, number>> {
   const out = new Map<number, number>();
   const weekStart = getUsWeeklyResetTimestamp();
-  const priorWeekStart = weekStart - 7 * 24 * 60 * 60;
-  for (const ids of chunk(charIds, D1_PARAM_CHUNK)) {
-    const placeholders = ids.map(() => '?').join(', ');
-    const result = await db
-      .prepare(
-        `WITH latest_prior AS (
-           SELECT blizzard_char_id, MAX(recorded_at) AS recorded_at
-             FROM raider_progression_history
-            WHERE blizzard_char_id IN (${placeholders})
-              AND recorded_at >= ? AND recorded_at < ?
-            GROUP BY blizzard_char_id
-         )
-         SELECT h.blizzard_char_id, h.total_upgrades_missing
-           FROM raider_progression_history h
-           JOIN latest_prior p ON p.blizzard_char_id = h.blizzard_char_id AND p.recorded_at = h.recorded_at`
-      )
-      .bind(...ids, priorWeekStart, weekStart)
-      .all<{ blizzard_char_id: number; total_upgrades_missing: number | null }>();
-    for (const row of result.results ?? []) {
-      if (row.total_upgrades_missing !== null) out.set(Number(row.blizzard_char_id), Number(row.total_upgrades_missing));
+  try {
+    for (const ids of chunk(charIds, D1_PARAM_CHUNK)) {
+      const result = await db
+        .prepare(
+          `SELECT blizzard_char_id, SUM(MAX(0, last_step - first_step)) AS completed
+             FROM raider_weekly_item_upgrades
+            WHERE week_start = ? AND blizzard_char_id IN (${ids.map(() => '?').join(', ')})
+            GROUP BY blizzard_char_id`
+        )
+        .bind(weekStart, ...ids)
+        .all<{ blizzard_char_id: number; completed: number | null }>();
+      for (const row of result.results ?? []) {
+        out.set(Number(row.blizzard_char_id), Number(row.completed ?? 0));
+      }
     }
+  } catch (error) {
+    // Keep the rest of Bench working if migration 0109 hasn't been applied yet.
+    console.error('Weekly item upgrade read failed', { error });
   }
   return out;
 }
@@ -550,7 +552,7 @@ async function loadWeeklyUpgradeProgress(db: D1Database, charIds: number[]): Pro
 type BenchMetrics = Pick<BenchRaider, 'vaultScore' | 'preparednessScore' | 'upgradesCompleted' | 'upgradesMissing'>;
 
 async function loadBenchMetrics(db: D1Database, charIds: number[]): Promise<Map<number, BenchMetrics>> {
-  const priorWeekMissing = await loadWeeklyUpgradeProgress(db, charIds);
+  const weeklyUpgrades = await loadWeeklyUpgradeProgress(db, charIds);
   const out = new Map<number, BenchMetrics>();
   for (const ids of chunk(charIds, D1_PARAM_CHUNK)) {
     const result = await db
@@ -565,7 +567,6 @@ async function loadBenchMetrics(db: D1Database, charIds: number[]): Promise<Map<
       .bind(...ids)
       .all<BenchMetricsRow>();
     for (const row of result.results ?? []) {
-      const priorMissing = priorWeekMissing.get(Number(row.blizzard_char_id));
       out.set(Number(row.blizzard_char_id), {
         vaultScore: computeGreatVaultScore(
           vaultRaidSlots(row.raid_progress_label),
@@ -573,10 +574,7 @@ async function loadBenchMetrics(db: D1Database, charIds: number[]): Promise<Map<
           Math.max(0, row.world_vault_weekly_objectives ?? 0)
         ),
         preparednessScore: preparednessScore(row),
-        upgradesCompleted:
-          priorMissing === undefined || row.total_upgrades_missing === null
-            ? 0
-            : Math.max(0, priorMissing - Number(row.total_upgrades_missing)),
+        upgradesCompleted: weeklyUpgrades.get(Number(row.blizzard_char_id)) ?? 0,
         upgradesMissing: row.total_upgrades_missing === null ? null : Number(row.total_upgrades_missing),
       });
     }
