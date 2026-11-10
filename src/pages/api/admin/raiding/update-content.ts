@@ -2,16 +2,9 @@ export const prerender = false;
 
 import type { APIContext } from 'astro';
 import { env } from 'cloudflare:workers';
+import { sanitizeRichHtml } from '../../../../lib/sanitize-html';
 
 const ALLOWED_KEYS = new Set(['schedule', 'raid_expectations', 'recruitment']);
-
-/** Strip <script> tags and inline event handlers from admin-submitted rich HTML. */
-function sanitizeHtml(html: string): string {
-  return html
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/\son\w+\s*=\s*["'][^"']*["']/gi, '')
-    .replace(/\son\w+\s*=\s*[^\s>]+/gi, '');
-}
 
 export async function POST(context: APIContext): Promise<Response> {
   if (!context.locals.isAdmin) {
@@ -30,7 +23,7 @@ export async function POST(context: APIContext): Promise<Response> {
       });
     }
 
-    const content = sanitizeHtml(rawContent.trim());
+    const content = await sanitizeRichHtml(rawContent.trim());
 
     await env.DB
       .prepare(

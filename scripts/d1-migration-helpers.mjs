@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
+import { createRequire } from 'module';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs';
 import { basename, dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -46,6 +47,36 @@ const DESTRUCTIVE_PATTERNS = [
   { kind: 'ALTER TABLE DROP COLUMN', regex: /\bALTER\s+TABLE\b[\s\S]*?\bDROP\s+COLUMN\b/gi },
 ];
 
+// Resolved on first use: check-migrations.mjs imports this module in CI without node_modules.
+let wranglerBin = null;
+function resolveWranglerBin() {
+  wranglerBin ??= join(
+    dirname(createRequire(import.meta.url).resolve('wrangler/package.json')),
+    'bin',
+    'wrangler.js'
+  );
+  return wranglerBin;
+}
+
+/**
+ * Run wrangler with an argument array and no shell, so values such as SQL text reach it
+ * verbatim instead of being re-parsed (and needing escaping) by cmd.exe or sh.
+ */
+export function execWrangler(args, options = {}) {
+  return execFileSync(process.execPath, [resolveWranglerBin(), ...args], {
+    cwd: PROJECT_ROOT,
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+    maxBuffer: 128 * 1024 * 1024,
+    ...options,
+  });
+}
+
+/** Arguments for `wrangler d1 execute <db> <flags...> --command <sql>`. */
+export function d1CommandArgs(sql, flags = []) {
+  return ['d1', 'execute', DATABASE_NAME, ...flags, '--command', sql.replace(/\r?\n/g, ' ')];
+}
+
 export function runCommand(commandLine, options = {}) {
   return execSync(commandLine, {
     cwd: PROJECT_ROOT,
@@ -65,12 +96,9 @@ export function parseJsonOutput(output) {
 }
 
 export function runWranglerCommand(sql, { remote = false, json = false } = {}) {
-  const locationFlag = remote ? '--remote --yes' : '--local';
-  const jsonFlag = json ? ' --json' : '';
-  const escapedSql = sql.replace(/"/g, '\\"').replace(/\r?\n/g, ' ');
-  return runCommand(
-    `npx wrangler d1 execute ${DATABASE_NAME} ${locationFlag}${jsonFlag} --command "${escapedSql}"`
-  );
+  const flags = remote ? ['--remote', '--yes'] : ['--local'];
+  if (json) flags.push('--json');
+  return execWrangler(d1CommandArgs(sql, flags));
 }
 
 export function runWranglerFile(filePath, { remote = false } = {}) {

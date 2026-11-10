@@ -8,6 +8,7 @@ import { execSync } from 'child_process';
 import { rmSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { d1CommandArgs, execWrangler } from './d1-migration-helpers.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -28,18 +29,25 @@ function quoteIdentifier(identifier) {
 }
 
 function runCommand(commandLine, { retries = 2 } = {}) {
-  console.log(`\n$ ${commandLine}`);
+  return runWithRetries(
+    commandLine,
+    () => execSync(commandLine, {
+      cwd: PROJECT_ROOT,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      maxBuffer: 128 * 1024 * 1024,
+    }),
+    { retries }
+  );
+}
+
+function runWithRetries(label, run, { retries = 2 } = {}) {
+  console.log(`\n$ ${label}`);
 
   let lastError = null;
   for (let attempt = 1; attempt <= retries + 1; attempt += 1) {
     try {
-      const result = execSync(commandLine, {
-        cwd: PROJECT_ROOT,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        maxBuffer: 128 * 1024 * 1024,
-      });
-      return result;
+      return run();
     } catch (error) {
       lastError = error;
       const isFinalAttempt = attempt > retries;
@@ -70,11 +78,10 @@ function runSqlFile(sql, { remote = false, json = false } = {}) {
 }
 
 function runSqlCommand(sql, { remote = false, json = false } = {}) {
-  const flag = remote ? '--remote' : '--local';
-  const jsonFlag = json ? ' --json' : '';
-  const escapedSql = sql.replace(/"/g, '\\"').replace(/\r?\n/g, ' ');
-  const commandLine = `npx wrangler d1 execute ${DATABASE_NAME} ${flag}${jsonFlag} --command "${escapedSql}"`;
-  return runCommand(commandLine);
+  const flags = [remote ? '--remote' : '--local'];
+  if (json) flags.push('--json');
+  const args = d1CommandArgs(sql, flags);
+  return runWithRetries(`wrangler ${args.join(' ')}`, () => execWrangler(args));
 }
 
 function parseJsonOutput(output) {

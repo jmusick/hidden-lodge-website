@@ -5,6 +5,7 @@ import { copyFileSync, mkdtempSync, readdirSync, rmSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { d1CommandArgs, execWrangler } from './d1-migration-helpers.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -48,18 +49,10 @@ function parseJsonOutput(output) {
 }
 
 function executeSql(sql, { remote = false, persistTo, cwd = PROJECT_ROOT } = {}) {
-  const locationFlag = remote ? '--remote' : '--local';
-  const persistFlag = persistTo ? ` --persist-to "${persistTo}"` : '';
-  const escapedSql = sql.replace(/"/g, '\\"').replace(/\r?\n/g, ' ');
-  return execSync(
-    `npx wrangler d1 execute ${DATABASE_NAME} ${locationFlag}${persistFlag} --json --command "${escapedSql}"`
-    , {
-      cwd,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      maxBuffer: 32 * 1024 * 1024,
-    }
-  );
+  const flags = [remote ? '--remote' : '--local'];
+  if (persistTo) flags.push('--persist-to', persistTo);
+  flags.push('--json');
+  return execWrangler(d1CommandArgs(sql, flags), { cwd, maxBuffer: 32 * 1024 * 1024 });
 }
 
 function applyScratchMigrations({ persistTo, cwd }) {

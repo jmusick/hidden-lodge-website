@@ -16,6 +16,9 @@ on:
       - 'scripts/d1-migration-helpers.mjs'
       - '.github/workflows/migration-safety.yml'
 
+permissions:
+  contents: read
+
 jobs:
   check-migrations:
     runs-on: ubuntu-latest

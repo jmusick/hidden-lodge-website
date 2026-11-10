@@ -4,6 +4,7 @@ export const prerender = false;
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import { Icon } from 'astro-icon/components';
 import { env } from 'cloudflare:workers';
+import { sanitizeRichHtml } from '../../lib/sanitize-html';
 
 if (!Astro.locals.isAdmin) {
   return Astro.redirect('/');
@@ -19,7 +20,7 @@ const [contentResult, addonsResult] = await env.DB.batch([
 
 const contentMap = new Map<string, string>();
 for (const row of (contentResult.results ?? []) as ContentRow[]) {
-  contentMap.set(row.key, row.content);
+  contentMap.set(row.key, await sanitizeRichHtml(row.content));
 }
 
 const addons = (addonsResult.results ?? []) as AddonRow[];

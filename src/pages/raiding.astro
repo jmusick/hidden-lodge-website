@@ -4,6 +4,7 @@ import { Icon } from 'astro-icon/components';
 import { env } from 'cloudflare:workers';
 import { getSessionUser } from '../lib/auth';
 import { FEATURE_FLAGS } from '../lib/feature-flags';
+import { sanitizeRichHtml } from '../lib/sanitize-html';
 
 interface RecentGuildLog {
   title: string;
@@ -302,9 +303,10 @@ for (const row of (raidingContentResult.results ?? []) as RaidingContentRow[]) {
 
 const raidingAddons = (raidingAddonsResult.results ?? []) as RaidingAddonRow[];
 
-const scheduleHtml     = raidingContentMap.get('schedule')          ?? '';
-const expectationsHtml = raidingContentMap.get('raid_expectations') ?? '';
-const recruitmentHtml  = raidingContentMap.get('recruitment')       ?? '';
+// Re-sanitize on render so rows saved before the allowlist sanitizer existed are cleaned too.
+const [scheduleHtml, expectationsHtml, recruitmentHtml] = await Promise.all(
+  ['schedule', 'raid_expectations', 'recruitment'].map((key) => sanitizeRichHtml(raidingContentMap.get(key) ?? '')),
+);
 
 const blizzardClientId = readEnv('BLIZZARD_CLIENT_ID') ?? '';
 

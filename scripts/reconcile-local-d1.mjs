@@ -4,6 +4,7 @@ import { execSync } from 'child_process';
 import { writeFileSync, rmSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { d1CommandArgs, execWrangler } from './d1-migration-helpers.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -29,10 +30,7 @@ function parseJsonOutput(output) {
 }
 
 function runLocalSqlCommand(sql) {
-  const escapedSql = sql.replace(/"/g, '\\"').replace(/\r?\n/g, ' ');
-  return runCommand(
-    `npx wrangler d1 execute ${DATABASE_NAME} --local --json --command "${escapedSql}"`
-  );
+  return execWrangler(d1CommandArgs(sql, ['--local', '--json']), { maxBuffer: 16 * 1024 * 1024 });
 }
 
 function runLocalSqlFile(sql) {
