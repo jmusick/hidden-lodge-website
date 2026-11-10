@@ -116,18 +116,25 @@ export async function GET(context: APIContext): Promise<Response> {
 			// Popup flow: the session cookie is set on this response, same as the redirect flow,
 			// so it stays HttpOnly and the session ID never reaches page JavaScript. The script
 			// only tells the opener that login finished and passes the BattleTag for display;
-			// the opener's later same-origin requests carry the cookie.
+			// the opener's later same-origin requests carry the cookie. If the popup was blocked,
+			// this page loads in the original tab and sends it back to the application form.
 			const message = jsonForInlineScript({ type: 'blizzard-auth', battletag: blizzardUser.battletag });
 			const html = `<!DOCTYPE html><html><head><title>Blizzard Login</title>
 <style>body{font-family:sans-serif;background:#0b1520;color:#d8e2e8;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}</style>
 </head><body><p>Logged in — returning to application form…</p>
 <script>(function(){
+var message = ${message};
 if(window.opener && window.opener !== window) {
   try{
-    window.opener.postMessage(${message},window.location.origin);
+    window.opener.postMessage(message,window.location.origin);
   }catch(_){}
   setTimeout(function(){window.close();},500);
+  return;
 }
+// No opener: the popup was blocked and the login ran in the original tab. Hand the BattleTag
+// to /raiding's sessionStorage fallback and go back to the application form.
+try{ sessionStorage.setItem('blizzard-chars', JSON.stringify(message)); }catch(_){}
+window.location.replace('/raiding#apply');
 })();<\/script></body></html>`;
 
 			const popupHeaders = new Headers({ 'Content-Type': 'text/html;charset=utf-8' });
