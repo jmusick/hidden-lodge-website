@@ -28,7 +28,7 @@ const adminModules = Astro.locals.isAdmin ? allAdminModules : allAdminModules.fi
 const currentAdminModule = adminModules.find((module) => currentPath.startsWith(module.href))?.label ?? 'Modules';
 ---
 
-<Layout title={title}>
+<Layout title={title} skipTarget="admin-content">
 	<div class="admin-wrapper">
 		<div class="admin-header">
 			<div class="admin-header-inner">
@@ -75,7 +75,7 @@ const currentAdminModule = adminModules.find((module) => currentPath.startsWith(
 			</div>
 		</div>
 
-		<div class="admin-content">
+		<div id="admin-content" class="admin-content skip-target" tabindex="-1">
 			<slot />
 		</div>
 	</div>
