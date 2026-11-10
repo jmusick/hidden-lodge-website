@@ -56,9 +56,14 @@ h4 { font-size: var(--text-lg); }
 	transform: translateY(-200%);
 }
 
-.skip-link:focus-visible {
+.skip-link:focus {
 	transform: none;
 	background: var(--bg-soft);
+}
+
+/* Skip-link targets: land clear of the sticky site header after the jump. */
+.skip-target {
+	scroll-margin-top: 6.5rem;
 }
 
 /* Programmatic focus target of the skip link; no ring on the container itself. */
