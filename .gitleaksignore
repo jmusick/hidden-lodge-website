@@ -1,0 +1,10 @@
+# Gitleaks findings reviewed and accepted (fingerprint = commit:file:rule:line).
+
+# False positives: cache-key constant names, not secrets.
+8c1b40756a38b3fe5eb7ac0e1a3726da155a0ed2:src/lib/trinkets.ts:generic-api-key:8
+433003949fe711baa6f14d788750231ed3672358:src/lib/trinkets.ts:generic-api-key:10
+4f738b1601ac7ec47272cafde2d7f4f5b1011137:src/lib/trinkets.ts:generic-api-key:10
+
+# A short-lived Blizzard OAuth access token (24-hour expiry) hardcoded in a one-off debug script. The
+# script was deleted in #32; the token stays in history because rewriting it would need a force-push.
+c7c4d9946f7923c0b29b4bc20e7bd6b65c674e2c:scripts/debug-raids-response.mjs:generic-api-key:1
