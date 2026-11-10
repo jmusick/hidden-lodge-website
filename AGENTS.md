@@ -38,6 +38,7 @@ Guidance for AI coding agents working in `hidden-lodge-website` ([repository](ht
 ## CI
 
 - `.github/workflows/ci.yml` calls the shared [jmusick/ci](https://github.com/jmusick/ci) workflows on every PR and push to `main`: **baseline** (Gitleaks over the full history, lockfile integrity, `npm audit --audit-level=high`, registry signatures, dependency review on PRs) and **web-app** (`npm ci`, then `npm run typecheck`, `npm run test:cron`, `npm run build`). **CI gate** passes only when every job passed; it's the one check to require in branch protection. A clean checkout needs no setup step because `worker-configuration.d.ts` is committed; if that changes, add `setup-command: npm run types`.
+- Gitleaks reads `.gitleaksignore` for reviewed findings (fingerprints from the scan log). Add one only after confirming the hit is a false positive or a dead credential; never commit a live secret, and read tokens from the environment in scripts.
 - `.github/workflows/release.yml` publishes a GitHub Release with generated notes for each pushed `v*` tag, through the shared release workflow.
 - `.github/workflows/migration-safety.yml` runs `scripts/check-migrations.mjs` on changed migrations. It stays separate (and outside CI gate) until jmusick/ci ships a shared migration check.
 - Node comes from `.nvmrc` in every workflow. Shared workflows and third-party actions are pinned by commit SHA with a `# vX.Y.Z` comment; keep the comment so `.github/dependabot.yml` (weekly npm and github-actions updates) can propose new releases. Never use a floating tag like `@v4`.
