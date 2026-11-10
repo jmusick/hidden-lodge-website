@@ -593,7 +593,7 @@ Deploy as the `hidden-lodge-website` Cloudflare Worker.
 - Build: `npm run build`; deploy: `npm run deploy` (Wrangler follows Astro’s generated config).
 - Entrypoint: `src/worker.ts`; assets: `dist/client`.
 - GitHub: `jmusick/hidden-lodge-website`, production branch `main`.
-- Node: `22.23.4` or newer; existing D1 binding: `DB`.
+- Node: `22.23.4` or newer (`.nvmrc` pins `22.23.4` for CI); existing D1 binding: `DB`.
 - Native cron and cutover/rollback instructions: [docs/deployment.md](docs/deployment.md).
 - Audit reconciliation and issue index: [docs/BACKLOG.md](docs/BACKLOG.md).
 
@@ -628,12 +628,17 @@ git push --follow-tags
 
 ### GitHub release automation
 
-A GitHub Actions workflow lives at `.github/workflows/release.yml`.
+`.github/workflows/release.yml` calls the shared [jmusick/ci](https://github.com/jmusick/ci) release workflow. When a tag matching `v*` is pushed, it creates a GitHub Release with notes generated from the merged pull requests.
 
-When a tag matching `v*` is pushed:
+## Continuous Integration
 
-- GitHub Actions creates a GitHub Release automatically
-- release notes are generated from commits by GitHub
+`.github/workflows/ci.yml` runs on every pull request and push to `main`, using the shared jmusick/ci workflows:
+
+- **Baseline**: Gitleaks secret scan of the full history, lockfile integrity, `npm audit --audit-level=high`, registry signature check, and dependency review on PRs
+- **Web app**: `npm ci`, then `npm run typecheck`, `npm run test:cron`, and `npm run build`
+- **CI gate**: passes only when every job above passed; this is the check to require in branch protection
+
+`.github/workflows/migration-safety.yml` checks changed migrations separately (see [Migration Safety](#migration-safety)). Every workflow reads the Node version from `.nvmrc`, and actions are pinned by commit SHA. `.github/dependabot.yml` proposes weekly npm and GitHub Actions updates, including new jmusick/ci releases.
 
 ### Suggested release rules
 
