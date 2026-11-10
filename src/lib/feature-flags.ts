@@ -17,6 +17,7 @@ export const FEATURE_FLAGS = {
   applications: false,
   feedback: true,
   tools: true,
-  groupSizeAnalysis: true,
+  // Retired Nov 2026: built to troubleshoot Heroic Ula'tek, no longer needed.
+  groupSizeAnalysis: false,
   sim: false,
 } as const;
