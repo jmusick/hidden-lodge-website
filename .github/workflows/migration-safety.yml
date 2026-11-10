@@ -54,8 +54,10 @@ jobs:
         if: steps.changes.outputs.files != ''
         env:
           FILES: ${{ steps.changes.outputs.files }}
-        # Unquoted on purpose: FILES is a space-separated list of paths.
-        run: node scripts/check-migrations.mjs $FILES
+        # Unquoted on purpose: FILES is a space-separated list of paths. set -f stops glob expansion.
+        run: |
+          set -f
+          node scripts/check-migrations.mjs $FILES
 
       - name: No migration changes
         if: steps.changes.outputs.files == ''
