@@ -1,23 +1,17 @@
-name: Publish Release
+# Publishes a GitHub Release, with notes generated from the merged pull requests, whenever a vX.Y.Z
+# tag is pushed. Nothing is attached: the site deploys with wrangler, not from release files.
+name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
+    name: Release
+    permissions:
+      contents: write
+    uses: jmusick/ci/.github/workflows/release.yml@a8ac9c292577382c63e5a38af58d38a4cd6f8504 # v0.3.0

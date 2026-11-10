@@ -25,14 +25,15 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22.23.4'
+          node-version-file: .nvmrc
 
       - name: Determine changed migration files
         id: changes
@@ -51,7 +52,10 @@ jobs:
 
       - name: Check changed migrations
         if: steps.changes.outputs.files != ''
-        run: node scripts/check-migrations.mjs ${{ steps.changes.outputs.files }}
+        env:
+          FILES: ${{ steps.changes.outputs.files }}
+        # Unquoted on purpose: FILES is a space-separated list of paths.
+        run: node scripts/check-migrations.mjs $FILES
 
       - name: No migration changes
         if: steps.changes.outputs.files == ''
