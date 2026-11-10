@@ -2,6 +2,8 @@
 interface Props {
 	title?: string;
 	description?: string;
+	/** id of the element the skip link focuses; defaults to the main landmark. */
+	skipTarget?: string;
 }
 
 import { externalLinks } from '../data/externalLinks';
@@ -14,7 +16,8 @@ import '../styles/components.css';
 
 const {
 	title = 'The Hidden Lodge | WoW Guild',
-	description = 'Semi hardcore raiding guild focused on AOTC and Mythic progression.'
+	description = 'Semi hardcore raiding guild focused on AOTC and Mythic progression.',
+	skipTarget = 'main-content'
 } = Astro.props;
 
 const user = Astro.locals.user;
@@ -141,6 +144,7 @@ const isIndexable = !NOINDEX_PREFIXES.some(
 		</script>
 	</head>
 	<body>
+		<a class="skip-link" href={`#${skipTarget}`}>Skip to content</a>
 		<div class="background-glow" aria-hidden="true"></div>
 		<header class="site-header">
 			<div class="container shell">
@@ -315,7 +319,7 @@ const isIndexable = !NOINDEX_PREFIXES.some(
 			</div>
 		</header>
 
-		<main class="container">
+		<main id="main-content" class="container skip-target" tabindex="-1">
 			<slot />
 		</main>
 
