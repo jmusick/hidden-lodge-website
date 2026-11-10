@@ -4,7 +4,7 @@ Guidance for AI coding agents working in `hidden-lodge-website` ([repository](ht
 
 ## Stack
 
-- **Astro 6** (SSR, `output: "server"`) deployed to **Cloudflare Workers** via `@astrojs/cloudflare`.
+- **Astro 7** (SSR, `output: "server"`) deployed to **Cloudflare Workers** via `@astrojs/cloudflare`.
 - **D1** (Cloudflare's SQLite) as the database, binding name `DB`. Schema lives as sequential SQL files in `migrations/*.sql` — there is no ORM.
 - Pages (file-based routing) live in `src/pages/`. API endpoints are Astro endpoints under `src/pages/api/**/*.ts`, each exporting `POST`/`GET`/etc. and `export const prerender = false`.
 - Shared server-side logic lives in `src/lib/**` (plain `.ts`, imported by both pages and API routes).

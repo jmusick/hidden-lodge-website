@@ -13,7 +13,7 @@ npx wrangler deploy --dry-run
 npm run deploy
 ```
 
-Astro 6's Cloudflare adapter generates `dist/server/wrangler.json` and `.wrangler/deploy/config.json`. Wrangler follows that generated config automatically. Edit `wrangler.toml` and `src/worker.ts`, then rebuild; do not patch generated output. The old Pages build patch has been removed. The compatibility date remains `2025-01-01` to preserve runtime behavior during migration.
+Astro's Cloudflare adapter generates `dist/server/wrangler.json` and `.wrangler/deploy/config.json`. Wrangler follows that generated config automatically. Edit `wrangler.toml` and `src/worker.ts`, then rebuild; do not patch generated output. The old Pages build patch has been removed. The compatibility date remains `2025-01-01` to preserve runtime behavior during migration.
 
 `DB` reuses the existing `hidden-lodge-db` D1 database (`f51db21f-954c-4845-a829-a6900f5be5c3`). No database copy or schema migration is part of the hosting move. `ASSETS` serves `dist/client`. Application sessions remain in D1; Astro's separate session driver remains the existing LRU driver.
 
@@ -34,7 +34,7 @@ Keep the existing per-leg deadlines, cursor carryover, feature gates, and 8-seco
 1. Upload the built Worker with the existing production secret values. A protected JSON/env file can be supplied with `wrangler deploy --secrets-file`; never commit it or print values. Local development uses a localhost Blizzard callback; production must use `https://hidden-lodge.com/auth/callback`.
 2. Validate the Worker URL, static assets, D1-backed pages, OAuth redirect, and machine endpoint authentication before moving traffic.
 3. Route `hidden-lodge.com/*` to this Worker. The existing Pages project/domain can remain as a rollback origin, with its automatic deployments disabled. Avoid deploying the new Worker build through Pages.
-4. Connect Workers Builds to the renamed GitHub repo: `main`, root `/`, build `npm run build`, deploy `npx wrangler deploy`, Node 22.12+ (24 is supported). Disable non-production branch builds unless their bindings are isolated from production D1.
+4. Connect Workers Builds to the renamed GitHub repo: `main`, root `/`, build `npm run build`, deploy `npx wrangler deploy`, Node 22.23.4+ (Astro 7 minimum; 24 is supported). Disable non-production branch builds unless their bindings are isolated from production D1.
 5. After confirming native scheduled runs in Cloudflare Cron Events/Worker logs, retire the external cron-job.org jobs to prevent duplicate refreshes. Done: the jobs were deleted, not kept disabled (see [Native cron verification](#native-cron-verification--2026-10-13)).
 
 Rollback: remove the Worker route so the retained Pages domain serves its prior deployment. Pages has no cron triggers, so the external scheduler must be recreated: three jobs sending the `X-Cron-Secret` header (the Worker's `CRON_SECRET` value) to `https://hidden-lodge.com/api/cron/refresh?skipRaiders=1&skipLogs=1`, `/api/cron/refresh-raiders`, and `/api/cron/refresh-logs`, matching the cadences in the table above. Disable Worker cron triggers before enabling them. This rolls back hosting only, not D1 data. Record deployment IDs, observed cron runs, and any remaining cutover step below.

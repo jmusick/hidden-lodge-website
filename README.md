@@ -150,7 +150,7 @@ http://localhost:4321
 
 ## Tech Stack
 
-- Astro 6 SSR
+- Astro 7 SSR
 - Cloudflare Workers hosting with native Cron Triggers
 - Cloudflare D1 for persistent data
 - Blizzard Battle.net OAuth2 and WoW APIs
@@ -593,7 +593,7 @@ Deploy as the `hidden-lodge-website` Cloudflare Worker.
 - Build: `npm run build`; deploy: `npm run deploy` (Wrangler follows Astro’s generated config).
 - Entrypoint: `src/worker.ts`; assets: `dist/client`.
 - GitHub: `jmusick/hidden-lodge-website`, production branch `main`.
-- Node: `22.12.0` or newer; existing D1 binding: `DB`.
+- Node: `22.23.4` or newer; existing D1 binding: `DB`.
 - Native cron and cutover/rollback instructions: [docs/deployment.md](docs/deployment.md).
 - Audit reconciliation and issue index: [docs/BACKLOG.md](docs/BACKLOG.md).
 
