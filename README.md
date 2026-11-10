@@ -442,6 +442,7 @@ These handlers remain in the codebase as retired stubs and currently return HTTP
 3. Blizzard redirects back to `/auth/callback` after login approval.
 4. The callback exchanges the code for an access token and syncs the user's WoW characters into D1.
 5. The site creates a 7-day session and stores it in D1 plus an HTTP-only session cookie.
+   The raid application form's popup login (`/auth/login?popup=1`) gets the same cookie on the popup's response; the session ID never reaches page JavaScript. The popup only posts the BattleTag back to `/raiding` for display, and if the popup was blocked it sends the tab back to `/raiding#apply`.
 6. Middleware loads the user on each request and determines admin access from guild rank.
 
 ## Data Model
