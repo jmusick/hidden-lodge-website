@@ -8,8 +8,6 @@ P1 = high impact; P2 = normal; P3 = lower priority/deferred. No evidence support
 
 | ID | Category | Priority | Issue |
 | --- | --- | --- | --- |
-| S1 | security | P1 | [Remove session IDs from popup JavaScript and preserve HttpOnly cookies](https://github.com/jmusick/hidden-lodge-website/issues/16) |
-| S2 | security | P1 | [Apply baseline security headers to SSR, API, and static responses](https://github.com/jmusick/hidden-lodge-website/issues/17) |
 | S3 | security | P2 | [Roll out nonce-based Content Security Policy with useful reports](https://github.com/jmusick/hidden-lodge-website/issues/18) |
 | S4 | security | P2 | [Replace rich-text regex sanitization with an HTML allowlist](https://github.com/jmusick/hidden-lodge-website/issues/19) |
 | S5 | security | P2 | [Make admin API authorization fail closed without breaking officer routes](https://github.com/jmusick/hidden-lodge-website/issues/20) |
@@ -26,6 +24,8 @@ P1 = high impact; P2 = normal; P3 = lower priority/deferred. No evidence support
 - Design tokens, type/space/radius scales, shared base styles, focus ring, and component primitives (tranches 1–3): implemented. D4/D5 cover remaining adoption and verification, not recreating these foundations.
 - Design tranche 4: partial, not unstarted; parse-analysis/group-size views, article cards, 404, feedback and shared history components already reference primitives. A page inventory belongs to D4.
 - Global focus ring exists; remaining local override/contrast/keyboard review is merged into D4. Skip navigation stays separate as A1.
+- Popup login session handling (S1, [#16](https://github.com/jmusick/hidden-lodge-website/issues/16)): completed; `/auth/callback` sets the HttpOnly session cookie on the popup response and no longer passes the session ID to page JavaScript.
+- Baseline security headers (S2, [#17](https://github.com/jmusick/hidden-lodge-website/issues/17)): completed; `src/worker.ts` applies them to every Worker response and `public/_headers` to static assets. CSP remains S3.
 - Skip navigation (A1, [#21](https://github.com/jmusick/hidden-lodge-website/issues/21)): completed; Layout and AdminLayout share one skip link and one main landmark.
 - Design audit breakpoint consolidation: superseded by the settled DESIGN-SYSTEM.md decision to preserve nav breakpoints.
 - Pull Score/Parse Analysis plan: shipped and later revised to WCL bracketPercent on kills only. Current README, AGENTS and code own the formula; the original relative-to-role-median scoring plan is obsolete. No implementation issues recreated.
