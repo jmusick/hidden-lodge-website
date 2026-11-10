@@ -1,12 +1,12 @@
 # Baseline security headers for static files served directly by the Workers
-# assets binding, which never run through src/middleware.ts. Keep these values
+# assets binding, which never run through the Worker (src/worker.ts). Keep these values
 # in sync with SECURITY_HEADERS in src/lib/security-headers.ts.
 #
 # Don't set Cache-Control on a rule that matches /_astro/*: the Cloudflare
 # adapter prepends its own immutable Cache-Control rule for /_astro/* at build
 # time, and skips it if this file already sets one there.
 /*
-  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  Strict-Transport-Security: max-age=31536000
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: DENY

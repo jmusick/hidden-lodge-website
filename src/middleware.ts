@@ -1,7 +1,6 @@
 import { defineMiddleware } from 'astro:middleware';
 import { getSessionUser, isGuildAdmin, isGuildMember, isGuildOfficer } from './lib/auth';
 import { env } from 'cloudflare:workers';
-import { withSecurityHeaders } from './lib/security-headers';
 
 const MEMBER_ONLY_PATHS = new Set(['/raiders', '/signup', '/feedback', '/trinkets']);
 
@@ -34,8 +33,6 @@ function requireAuthenticatedGuildMember(
 	return null;
 }
 
-// Every response returned below, early returns included, goes through
-// withSecurityHeaders so it carries the baseline security headers.
 export const onRequest = defineMiddleware(async (context, next) => {
 	const user = await getSessionUser(env.DB, context.request);
 	context.locals.user = user;
@@ -47,7 +44,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
 
 	// Redirect raider/tool features to the hiatus page during guild break between seasons.
 	if (HIATUS_PATHS.has(path)) {
-		return withSecurityHeaders(context.redirect('/hiatus'));
+		return context.redirect('/hiatus');
 	}
 
 	// Guard all /admin/* routes at the middleware level
@@ -56,11 +53,11 @@ export const onRequest = defineMiddleware(async (context, next) => {
 	const isAdminSurface = isAdminPage || isAdminApi;
 	if (isAdminPage) {
 		if (!user) {
-			return withSecurityHeaders(context.redirect('/auth/login'));
+			return context.redirect('/auth/login');
 		}
 		const isOfficerPage = OFFICER_ADMIN_PATHS.has(path.replace(/\/+$/, '') || '/');
 		if (!context.locals.isAdmin && !(isOfficerPage && context.locals.isOfficer)) {
-			return withSecurityHeaders(new Response('Forbidden', { status: 403 }));
+			return new Response('Forbidden', { status: 403 });
 		}
 	}
 
@@ -71,11 +68,10 @@ export const onRequest = defineMiddleware(async (context, next) => {
 		(routePath) => context.redirect(routePath)
 	);
 	if (memberRouteResponse) {
-		return withSecurityHeaders(memberRouteResponse);
+		return memberRouteResponse;
 	}
 
-	// Also makes the headers mutable for the admin cache headers below.
-	const response = withSecurityHeaders(await next());
+	const response = await next();
 
 	if (isAdminSurface) {
 		response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, private, max-age=0');

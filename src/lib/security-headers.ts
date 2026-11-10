@@ -1,9 +1,10 @@
 // Baseline security headers for every response the site serves.
 //
-// The middleware applies these to SSR pages, API routes, redirects, and its own
-// early-return responses. Static files served straight from the Workers assets
-// binding never reach the middleware, so `public/_headers` repeats the same
-// values for them: keep the two in sync when changing anything here.
+// src/worker.ts applies these to every response the Worker returns (SSR pages,
+// API routes, middleware redirects and 403s, and error responses). Static files
+// served straight from the Workers assets binding never reach the Worker, so
+// `public/_headers` repeats the same values for them: keep the two in sync when
+// changing anything here.
 //
 // Content-Security-Policy is deliberately not set here (tracked separately in
 // GitHub issue #18).
@@ -29,9 +30,10 @@ const DISABLED_FEATURES = [
 ];
 
 export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
-	// No `preload`: submitting the domain to the HSTS preload list is a
-	// one-way decision for the site owner.
-	'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+	// No `includeSubDomains` or `preload`: both commit every hidden-lodge.com
+	// subdomain to HTTPS for the max-age and can't be withdrawn quickly, so
+	// they're the site owner's call once the zone's other hosts are checked.
+	'Strict-Transport-Security': 'max-age=31536000',
 	'X-Content-Type-Options': 'nosniff',
 	'Referrer-Policy': 'strict-origin-when-cross-origin',
 	// Nothing frames this site's pages (the OAuth flow uses a popup window).
