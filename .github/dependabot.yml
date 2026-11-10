@@ -17,6 +17,11 @@ updates:
     cooldown:
       default-days: 7
       semver-major-days: 14
+    ignore:
+      # @astrojs/check peers on typescript ^5 || ^6, so TypeScript 7 can't install yet (PR #37).
+      # Drop this once @astrojs/check accepts 7.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
     groups:
       # The framework, its adapter and the Workers toolchain move together and are tested together.
       astro-and-cloudflare:
