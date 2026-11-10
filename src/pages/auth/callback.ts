@@ -6,6 +6,20 @@ import { createSession, makeSessionCookie, secureCookieAttr } from '../../lib/au
 import { env } from 'cloudflare:workers';
 import { getBlizzardAuthConfig, getBlizzardRedirectUri } from '../../lib/runtime-env';
 
+/**
+ * JSON for embedding in an inline `<script>`. Escapes `<`, `>` and `&` so a value can't close
+ * the script element or open an HTML comment, and U+2028/U+2029, which older engines treat as
+ * line terminators inside string literals.
+ */
+function jsonForInlineScript(value: unknown): string {
+	return JSON.stringify(value)
+		.replace(/</g, '\\u003c')
+		.replace(/>/g, '\\u003e')
+		.replace(/&/g, '\\u0026')
+		.replace(/\u2028/g, '\\u2028')
+		.replace(/\u2029/g, '\\u2029');
+}
+
 export async function GET(context: APIContext): Promise<Response> {
 	const url = new URL(context.request.url);
 
@@ -99,29 +113,35 @@ export async function GET(context: APIContext): Promise<Response> {
 		const clearState = `hl_oauth_state=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax${secureCookieAttr(context.request.url)}`;
 
 		if (isPopup) {
-			// Popup flow: return HTML that postMessages session ID and battletag to parent
-			// Parent will set the cookie, update button, and reload
+			// Popup flow: the session cookie is set on this response, same as the redirect flow,
+			// so it stays HttpOnly and the session ID never reaches page JavaScript. The script
+			// only tells the opener that login finished and passes the BattleTag for display;
+			// the opener's later same-origin requests carry the cookie. If the popup was blocked,
+			// this page loads in the original tab and sends it back to the application form.
+			const message = jsonForInlineScript({ type: 'blizzard-auth', battletag: blizzardUser.battletag });
 			const html = `<!DOCTYPE html><html><head><title>Blizzard Login</title>
 <style>body{font-family:sans-serif;background:#0b1520;color:#d8e2e8;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}</style>
 </head><body><p>Logged in — returning to application form…</p>
 <script>(function(){
-var sessionId = '${sessionId}';
-var battletag = '${blizzardUser.battletag}';
+var message = ${message};
 if(window.opener && window.opener !== window) {
   try{
-    window.opener.postMessage({type:'blizzard-auth',battletag:battletag,characters:[],sessionId:sessionId},window.location.origin);
+    window.opener.postMessage(message,window.location.origin);
   }catch(_){}
   setTimeout(function(){window.close();},500);
+  return;
 }
+// No opener: the popup was blocked and the login ran in the original tab. Hand the BattleTag
+// to /raiding's sessionStorage fallback and go back to the application form.
+try{ sessionStorage.setItem('blizzard-chars', JSON.stringify(message)); }catch(_){}
+window.location.replace('/raiding#apply');
 })();<\/script></body></html>`;
 
-			return new Response(html, {
-				status: 200,
-				headers: {
-					'Content-Type': 'text/html;charset=utf-8',
-					'Set-Cookie': clearState,
-				},
-			});
+			const popupHeaders = new Headers({ 'Content-Type': 'text/html;charset=utf-8' });
+			popupHeaders.append('Set-Cookie', sessionCookie);
+			popupHeaders.append('Set-Cookie', clearState);
+
+			return new Response(html, { status: 200, headers: popupHeaders });
 		}
 
 		const resHeaders = new Headers({ Location: '/profile' });
