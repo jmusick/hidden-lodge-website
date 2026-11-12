@@ -639,7 +639,7 @@ git push --follow-tags
 - **Web app**: `npm ci`, then `npm run typecheck`, `npm run test:cron`, and `npm run build`
 - **CI gate**: passes only when every job above passed; this is the check to require in branch protection
 
-`.github/workflows/migration-safety.yml` checks changed migrations separately (see [Migration Safety](#migration-safety)). Every workflow reads the Node version from `.nvmrc`, and actions are pinned by commit SHA. `.github/dependabot.yml` proposes weekly npm and GitHub Actions updates, including new jmusick/ci releases.
+`.github/workflows/migration-safety.yml` checks changed migrations separately (see [Migration Safety](#migration-safety)). Every workflow reads the Node version from `.nvmrc`, and actions are pinned by commit SHA. `.github/dependabot.yml` proposes monthly npm and GitHub Actions updates, including new jmusick/ci releases.
 
 ### Suggested release rules
 
