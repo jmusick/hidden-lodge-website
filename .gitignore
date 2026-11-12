@@ -37,4 +37,3 @@ pnpm-debug.log*
 # local agent/assistant settings
 .claude/
 
-# Local audit backup is retained in .tmp; maintained backlog lives in docs/BACKLOG.md.

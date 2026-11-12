@@ -33,8 +33,8 @@ import { TRACKED_DIFFICULTIES, scopeIncludes, type DifficultyScope } from './rai
 // is their own value. WCL's bracketPercent doesn't have that problem: it's
 // a percentile against a worldwide population, populated regardless of how
 // many guildmates share a spec.
-// Reuses Death Analysis's canonical raid-night reports. See TODO.md "Pull
-// Score & Parse Analysis" for the full plan. Mirrors refreshMechanicsAnalysis
+// Reuses Death Analysis's canonical raid-night reports. See AGENTS.md "Pull
+// Score & Parse Analysis" for the design. Mirrors refreshMechanicsAnalysis
 // in mechanics-analysis.ts for the sync shape.
 
 /**
@@ -49,7 +49,7 @@ export const PULL_SCORE_DIFFICULTIES = new Set<number>(TRACKED_DIFFICULTIES);
 /** Fewer than this many *scored* kills (bracketPercent present) in a role is "too few to score", not a fallback to the WCL median (different scale). */
 export const PULL_SCORE_MIN_PULLS = 5;
 
-/** Fights per aliased GraphQL request within one report (table x2 + playerDetails each) — see the spike's point-cost measurement in TODO.md. */
+/** Fights per aliased GraphQL request within one report (table x2 + playerDetails each) (sized from a measured point cost). */
 const PULL_SCORE_FIGHT_BATCH_SIZE = 5;
 const DEFAULT_MAX_OPS_PER_RUN = 3;
 /** Small budget: per-pull `table` queries are heavier WCL load than anything else the site does. */

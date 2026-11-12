@@ -596,7 +596,7 @@ Deploy as the `hidden-lodge-website` Cloudflare Worker.
 - GitHub: `jmusick/hidden-lodge-website`, production branch `main`.
 - Node: `22.23.4` or newer (`.nvmrc` pins `22.23.4` for CI); existing D1 binding: `DB`.
 - Native cron and cutover/rollback instructions: [docs/deployment.md](docs/deployment.md).
-- Audit reconciliation and issue index: [docs/BACKLOG.md](docs/BACKLOG.md).
+- Open work and its status: [GitHub issues](https://github.com/jmusick/hidden-lodge-website/issues).
 
 ## Versioning Workflow
 

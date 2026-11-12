@@ -1,7 +1,7 @@
 # Design system migration — execution spec
 
-Companion to the [archived design audit](docs/audits/2026-09-source-review.md). **That document explains *why*. This one
-says *what to type*.** If the two disagree, this one wins.
+The design migration's execution spec: **it says *what to type*.** Remaining work is tracked in
+GitHub issues #24, #25, and #26.
 
 Written to be executed without further design judgment. Every value below is resolved — there are
 no "decide", "consider" or "roughly" items left. If you hit a case this spec doesn't cover, **stop
@@ -648,7 +648,7 @@ Vault Hidden Lodge notes per the usual docs-upkeep rule.
 
 ## 11. Progress
 
-Tick as tranches land. As of 2026-10-11, tranche 4 is partially adopted; see [the reconciled backlog](docs/BACKLOG.md) and issue #24 for remaining work.
+Tick as tranches land. As of 2026-10-11, tranche 4 is partially adopted; see issue #24 for remaining work.
 
 - [x] **1** — Tokens into `Layout.astro:287` + admin override (§1). *S, zero risk*
 - [x] **2** — `src/styles/base.css`, type scale, global focus (§2). *M*
