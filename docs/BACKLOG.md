@@ -9,7 +9,6 @@ P1 = high impact; P2 = normal; P3 = lower priority/deferred. No evidence support
 | ID | Category | Priority | Issue |
 | --- | --- | --- | --- |
 | S3 | security | P2 | [Roll out nonce-based Content Security Policy with useful reports](https://github.com/jmusick/hidden-lodge-website/issues/18) |
-| S4 | security | P2 | [Replace rich-text regex sanitization with an HTML allowlist](https://github.com/jmusick/hidden-lodge-website/issues/19) |
 | S5 | security | P2 | [Make admin API authorization fail closed without breaking officer routes](https://github.com/jmusick/hidden-lodge-website/issues/20) |
 | E1 | seo | P3 | [Generate a sitemap with real timestamps and shared indexing exclusions](https://github.com/jmusick/hidden-lodge-website/issues/22) |
 | C1 | maintenance | P3 | [Retire unused admin API stubs and duplicate Blizzard callback](https://github.com/jmusick/hidden-lodge-website/issues/23) |
@@ -26,6 +25,7 @@ P1 = high impact; P2 = normal; P3 = lower priority/deferred. No evidence support
 - Global focus ring exists; remaining local override/contrast/keyboard review is merged into D4. Skip navigation stays separate as A1.
 - Popup login session handling (S1, [#16](https://github.com/jmusick/hidden-lodge-website/issues/16)): completed; `/auth/callback` sets the HttpOnly session cookie on the popup response and no longer passes the session ID to page JavaScript.
 - Baseline security headers (S2, [#17](https://github.com/jmusick/hidden-lodge-website/issues/17)): completed; `src/worker.ts` applies them to every Worker response and `public/_headers` to static assets. CSP remains S3.
+- Rich-text sanitization (S4, [#19](https://github.com/jmusick/hidden-lodge-website/issues/19)): completed; `src/lib/sanitize-html.ts` is an HTMLRewriter allowlist applied on write and on render, and `npm run test:sanitize` checks Quill formatting plus encoded/malformed attack cases in workerd.
 - Skip navigation (A1, [#21](https://github.com/jmusick/hidden-lodge-website/issues/21)): completed; Layout and AdminLayout share one skip link and one main landmark.
 - Design audit breakpoint consolidation: superseded by the settled DESIGN-SYSTEM.md decision to preserve nav breakpoints.
 - Pull Score/Parse Analysis plan: shipped and later revised to WCL bracketPercent on kills only. Current README, AGENTS and code own the formula; the original relative-to-role-median scoring plan is obsolete. No implementation issues recreated.

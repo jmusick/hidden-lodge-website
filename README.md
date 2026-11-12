@@ -636,7 +636,7 @@ git push --follow-tags
 `.github/workflows/ci.yml` runs on every pull request and push to `main`, using the shared jmusick/ci workflows:
 
 - **Baseline**: Gitleaks secret scan of the full history, lockfile integrity, `npm audit --audit-level=high`, registry signature check, and dependency review on PRs
-- **Web app**: `npm ci`, then `npm run typecheck`, `npm run test:cron`, and `npm run build`
+- **Web app**: `npm ci`, then `npm run typecheck`, `npm test` (cron dispatch and rich-text sanitizer checks), and `npm run build`
 - **CI gate**: passes only when every job above passed; this is the check to require in branch protection
 
 `.github/workflows/migration-safety.yml` checks changed migrations separately (see [Migration Safety](#migration-safety)). Every workflow reads the Node version from `.nvmrc`, and actions are pinned by commit SHA. `.github/dependabot.yml` proposes monthly npm and GitHub Actions updates, including new jmusick/ci releases.

@@ -28,7 +28,9 @@ Guidance for AI coding agents working in `hidden-lodge-website` ([repository](ht
 
 - `npm run dev` — Astro dev server + local cron refresher (see `scripts/dev-with-cron.mjs`).
 - `npm run build` — `astro build` (adapter generates the Worker deploy config). It does **not** typecheck.
+- `npm test` — runs both test scripts below (what CI runs).
 - `npm run test:cron` — verifies schedule dispatch and failure reporting; run when changing schedules or shared refresh orchestration.
+- `npm run test:sanitize` — runs `src/lib/sanitize-html.ts` in workerd (through Wrangler's `createTestHarness` and the test-only Worker in `scripts/sanitize-html-test-worker/`, since HTMLRewriter doesn't exist in Node) against Quill output and attack/malformed cases; run when changing the sanitizer or the `/admin/raiding` editor toolbar.
 - `npm run deploy` — deploy the built Worker with Wrangler. Build first; production setup and rollback are in [docs/deployment.md](docs/deployment.md).
 - `npm run types` — regenerate binding declarations without global Worker runtime types, which conflict with Astro's browser DOM types.
 - `npm run typecheck` — `astro check`. The repo is clean (0 errors, 0 warnings); keep it that way. The remaining hints are known false positives — values used only inside `<script type="application/json">` or inline `on*` attributes (`RaiderSimTools.astro`, `signup.astro`, `trinkets.astro`) — plus style suggestions, so don't "fix" those by deleting code.
@@ -37,7 +39,7 @@ Guidance for AI coding agents working in `hidden-lodge-website` ([repository](ht
 
 ## CI
 
-- `.github/workflows/ci.yml` calls the shared [jmusick/ci](https://github.com/jmusick/ci) workflows on every PR and push to `main`: **baseline** (Gitleaks over the full history, lockfile integrity, `npm audit --audit-level=high`, registry signatures, dependency review on PRs) and **web-app** (`npm ci`, then `npm run typecheck`, `npm run test:cron`, `npm run build`). **CI gate** passes only when every job passed; it's the one check to require in branch protection. A clean checkout needs no setup step because `worker-configuration.d.ts` is committed; if that changes, add `setup-command: npm run types`.
+- `.github/workflows/ci.yml` calls the shared [jmusick/ci](https://github.com/jmusick/ci) workflows on every PR and push to `main`: **baseline** (Gitleaks over the full history, lockfile integrity, `npm audit --audit-level=high`, registry signatures, dependency review on PRs) and **web-app** (`npm ci`, then `npm run typecheck`, `npm test`, `npm run build`). **CI gate** passes only when every job passed; it's the one check to require in branch protection. A clean checkout needs no setup step because `worker-configuration.d.ts` is committed; if that changes, add `setup-command: npm run types`.
 - Gitleaks reads `.gitleaksignore` for reviewed findings (fingerprints from the scan log). Add one only after confirming the hit is a false positive or a dead credential; never commit a live secret, and read tokens from the environment in scripts.
 - `.github/workflows/release.yml` publishes a GitHub Release with generated notes for each pushed `v*` tag, through the shared release workflow.
 - `.github/workflows/migration-safety.yml` runs `scripts/check-migrations.mjs` on changed migrations. It stays separate (and outside CI gate) until jmusick/ci ships a shared migration check.

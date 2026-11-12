@@ -27,7 +27,7 @@ jobs:
     with:
       node-version-file: .nvmrc
       typecheck-command: npm run typecheck
-      test-command: npm run test:cron
+      test-command: npm test
       build-command: npm run build
 
   # The one check to require in branch protection. It passes only when every job above passed, so

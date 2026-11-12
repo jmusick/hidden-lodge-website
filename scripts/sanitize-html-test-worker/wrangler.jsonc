@@ -1,0 +1,6 @@
+// Test-only Worker for scripts/test-sanitize-html.mjs; never deployed.
+{
+  "name": "sanitize-html-test",
+  "main": "index.mjs",
+  "compatibility_date": "2025-01-01"
+}

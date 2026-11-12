@@ -7,7 +7,7 @@ The website targets the `hidden-lodge-website` Worker in Cloudflare account `fda
 ```sh
 npm ci
 npm run typecheck
-npm run test:cron
+npm test
 npm run build
 npx wrangler deploy --dry-run
 npm run deploy
