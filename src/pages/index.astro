@@ -3,11 +3,11 @@ import Layout from '../layouts/Layout.astro';
 import SectionCard from '../components/SectionCard.astro';
 import { externalLinks } from '../data/externalLinks';
 import { Icon } from 'astro-icon/components';
-import { fetchOrboroPostsByCategory } from '../lib/orboro-posts';
+import { ARTICLES_CATEGORY, fetchOrboroPostsByCategory } from '../lib/orboro-posts';
 
 let articles: Awaited<ReturnType<typeof fetchOrboroPostsByCategory>> = [];
 try {
-	articles = (await fetchOrboroPostsByCategory('world-of-warcraft')).slice(0, 3);
+	articles = (await fetchOrboroPostsByCategory(ARTICLES_CATEGORY)).slice(0, 3);
 } catch {
 	// silently degrade — no articles shown
 }

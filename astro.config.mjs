@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 // https://astro.build/config
 export default defineConfig({
+	site: 'https://hidden-lodge.com', // keep equal to SITE_ORIGIN in src/lib/site-routes.ts
 	output: 'server',
 	adapter: cloudflare({
 		imageService: 'compile',

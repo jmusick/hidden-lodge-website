@@ -171,6 +171,8 @@ http://localhost:4321
 | `/articles` | No | WoW articles pulled live from Orboro.net's public posts API; cards link out to the full post on orboro.net |
 | `/articles/:slug` | No | 301-redirects to the matching post on orboro.net (rewrites to `/404` if the slug isn't found in the current feed) |
 | `/roster` | No | Cached guild roster with filters, sorting, pagination, and collection stats |
+| `/sitemap.xml` | No | Generated from the public route inventory in `src/lib/site-routes.ts` (`PUBLIC_ROUTES`), honoring `FEATURE_FLAGS`. `lastmod` appears only on `/` and `/articles`, from the newest Orboro post date, and is omitted when the feed is unavailable. `/articles/:slug` is not listed (it redirects off-site); admin, API, auth, and member-only paths never are |
+| `/robots.txt` | No | Generated from the same module: `Disallow` for every `NOINDEX_PREFIXES` entry, plus the `Sitemap:` line with the canonical origin |
 | `/hiatus` | No | Guild-hiatus notice page; several routes redirect here (see Feature Flags) |
 | `/raiders` | Yes + Guild Member | Raider analytics table for all level-90 guild characters |
 | `/raiders/gear-summary` | Yes + Guild Member | Cross-raider equipped-gear summary table (guarded by `middleware.ts`, not an in-page check) |
@@ -628,7 +630,7 @@ git push --follow-tags
 `.github/workflows/ci.yml` runs on every pull request and push to `main`, using the shared jmusick/ci workflows:
 
 - **Baseline**: Gitleaks secret scan of the full history, lockfile integrity, `npm audit --audit-level=high`, registry signature check, and dependency review on PRs
-- **Web app**: `npm ci`, then `npm run typecheck`, `npm test` (cron dispatch and rich-text sanitizer checks), and `npm run build`
+- **Web app**: `npm ci`, then `npm run typecheck`, `npm test` (cron dispatch, rich-text sanitizer, and sitemap/robots checks), and `npm run build`
 - **CI gate**: passes only when every job above passed; this is the check to require in branch protection
 
 `.github/workflows/migration-safety.yml` checks changed migrations separately (see [Migration Safety](#migration-safety)). Every workflow reads the Node version from `.nvmrc`, and actions are pinned by commit SHA. `.github/dependabot.yml` proposes monthly npm and GitHub Actions updates, including new jmusick/ci releases.

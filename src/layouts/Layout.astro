@@ -10,6 +10,7 @@ import { externalLinks } from '../data/externalLinks';
 import { Icon } from 'astro-icon/components';
 import packageJson from '../../package.json';
 import { FEATURE_FLAGS } from '../lib/feature-flags';
+import { canonicalUrl as buildCanonicalUrl, isNoindexPath } from '../lib/site-routes';
 import { env } from 'cloudflare:workers';
 import '../styles/base.css';
 import '../styles/components.css';
@@ -75,32 +76,11 @@ const adminNavItems = [
 const responsiveMainMenuItems = [...publicNavItems, ...guildNavItems, ...toolsNavItems];
 
 const siteVersion = packageJson.version;
-const canonicalUrl = new URL(Astro.url.pathname, 'https://hidden-lodge.com').href;
+const canonicalUrl = buildCanonicalUrl(Astro.url.pathname);
 
-// Admin/member-only surfaces must not be indexed. They already redirect or 403 for
-// anonymous crawlers, but the URLs themselves shouldn't be advertised. Kept in sync
-// with the Disallow list in public/robots.txt.
-const NOINDEX_PREFIXES = [
-	'/admin',
-	'/api',
-	'/auth',
-	'/profile',
-	'/raiders',
-	'/signup',
-	'/feedback',
-	'/trinkets',
-	'/professions',
-	'/loot-history',
-	'/upgrades',
-	'/death-analysis',
-	'/mechanics-analysis',
-	'/parse-analysis',
-	'/group-size-analysis',
-];
-const currentPath = Astro.url.pathname;
-const isIndexable = !NOINDEX_PREFIXES.some(
-	(prefix) => currentPath === prefix || currentPath.startsWith(`${prefix}/`)
-);
+// Admin/member-only surfaces must not be indexed; the list is shared with robots.txt and
+// the sitemap (src/lib/site-routes.ts).
+const isIndexable = !isNoindexPath(Astro.url.pathname);
 ---
 
 <!doctype html>

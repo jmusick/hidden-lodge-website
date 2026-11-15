@@ -1,6 +1,8 @@
 // /articles data source. Posts are written and tagged on Orboro.net rather than
 // stored in this repo — this site just renders whatever carries the given category.
 const ORBORO_ORIGIN = 'https://orboro.net';
+/** The Orboro category this site's /articles page and sitemap draw from. */
+export const ARTICLES_CATEGORY = 'world-of-warcraft';
 const CACHE_TTL_SECONDS = 600;
 
 export interface OrboroPost {

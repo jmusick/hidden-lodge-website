@@ -1,13 +1,13 @@
 ---
 // Articles now live on Orboro.net; this route just redirects legacy/incoming
 // /articles/<slug> links to the matching post there.
-import { fetchOrboroPostsByCategory } from '../../lib/orboro-posts';
+import { ARTICLES_CATEGORY, fetchOrboroPostsByCategory } from '../../lib/orboro-posts';
 
 const { slug } = Astro.params;
 
 let article;
 try {
-	const articles = await fetchOrboroPostsByCategory('world-of-warcraft');
+	const articles = await fetchOrboroPostsByCategory(ARTICLES_CATEGORY);
 	article = articles.find((a) => a.slug === slug);
 } catch {
 	article = undefined;
