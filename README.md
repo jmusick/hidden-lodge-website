@@ -428,14 +428,6 @@ Run only the local refresher:
 npm run cron:local
 ```
 
-### Retired API Endpoints
-
-These handlers remain in the codebase as retired stubs and currently return HTTP 410:
-- `/api/admin/create-profile`
-- `/api/admin/assign-character`
-- `/api/admin/unassign-character`
-- `/api/admin/update-profile`
-
 ## Authentication and Session Flow
 1. User visits `/auth/login`.
 2. The site creates a CSRF state token and redirects to Blizzard OAuth2.
@@ -663,5 +655,4 @@ git push --follow-tags
 - `/articles` and the homepage's "Latest Articles" feed are sourced live from a public Orboro.net API (`src/lib/orboro-posts.ts`, posts tagged World of Warcraft), cached 10 minutes at the edge, with a small credit link back to orboro.net on both pages. `/articles/:slug` 301-redirects to the matching post on orboro.net rather than rendering content locally.
 - Lore content is currently authored directly in `src/pages/lore.astro`.
 - Google Analytics (`gtag.js`) is loaded site-wide from `src/layouts/Layout.astro`; disclosed in the Privacy Policy (`/privacy`).
-- `src/pages/auth/blizzard-callback.astro` appears to be an unused/orphaned duplicate of `src/pages/auth/callback.ts` (the actual OAuth flow uses `/auth/callback`) — worth confirming and removing rather than documenting as a live route.
 - `PROTECTED_TABLES` in `scripts/d1-migration-helpers.mjs` (`users`, `characters`, `raider_notes`, `raid_signups`, `loot_history`, `applications`, `application_notes`) is the only set that gets an automatic pre-migration backup. Anything else — take a manual `wrangler d1 export` before running a destructive migration against production.
