@@ -1,6 +1,7 @@
 import { defineMiddleware } from 'astro:middleware';
 import { getSessionUser, isGuildAdmin, isGuildMember, isGuildOfficer } from './lib/auth';
 import { env } from 'cloudflare:workers';
+import { decideAdminApiAccess } from './lib/admin-api-access';
 
 const MEMBER_ONLY_PATHS = new Set(['/raiders', '/signup', '/feedback', '/trinkets']);
 
@@ -59,6 +60,16 @@ export const onRequest = defineMiddleware(async (context, next) => {
 		if (!context.locals.isAdmin && !(isOfficerPage && context.locals.isOfficer)) {
 			return new Response('Forbidden', { status: 403 });
 		}
+	}
+
+	// Fail closed on /api/admin/*: admin-only unless listed in OFFICER_ADMIN_API_PATHS. API paths get
+	// a plain 401/403, never an OAuth redirect. Route-level checks still run after this.
+	const adminApiDecision = decideAdminApiAccess(path, user, context.locals.isAdmin, context.locals.isOfficer);
+	if (adminApiDecision === 'unauthorized') {
+		return new Response('Unauthorized', { status: 401 });
+	}
+	if (adminApiDecision === 'forbidden') {
+		return new Response('Forbidden', { status: 403 });
 	}
 
 	const memberRouteResponse = requireAuthenticatedGuildMember(
