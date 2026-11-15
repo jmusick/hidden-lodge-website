@@ -600,7 +600,7 @@ function comparisonTotalFor(memberId: number): number {
 	)}
 </Layout>
 
-<script is:inline>
+<script nonce={Astro.locals.cspNonce} is:inline>
 	(() => {
 		const form = document.getElementById('loot-history-filter-form');
 		if (!(form instanceof HTMLFormElement)) return;

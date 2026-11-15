@@ -2,6 +2,7 @@ import { defineMiddleware } from 'astro:middleware';
 import { getSessionUser, isGuildAdmin, isGuildMember, isGuildOfficer } from './lib/auth';
 import { env } from 'cloudflare:workers';
 import { decideAdminApiAccess } from './lib/admin-api-access';
+import { applyCspHeaders, generateCspNonce } from './lib/csp';
 
 const MEMBER_ONLY_PATHS = new Set(['/raiders', '/signup', '/feedback', '/trinkets']);
 
@@ -35,6 +36,8 @@ function requireAuthenticatedGuildMember(
 }
 
 export const onRequest = defineMiddleware(async (context, next) => {
+	const cspNonce = generateCspNonce();
+	context.locals.cspNonce = cspNonce;
 	const user = await getSessionUser(env.DB, context.request);
 	context.locals.user = user;
 	context.locals.isGuildMember = user ? await isGuildMember(env.DB, user.id) : false;
@@ -83,6 +86,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
 	}
 
 	const response = await next();
+	applyCspHeaders(response, cspNonce);
 
 	if (isAdminSurface) {
 		response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, private, max-age=0');

@@ -624,7 +624,7 @@ function gearTitle(
                           class="armory-icon"
                           loading="lazy"
                           decoding="async"
-                          onerror={`this.src='${FALLBACK_ICON}'`}
+                          data-fallback-src={FALLBACK_ICON}
                         />
                         <span class="armory-icon-ilvl">{item.itemLevel ?? '—'}</span>
                       </a>
@@ -699,7 +699,7 @@ function gearTitle(
                             class="armory-icon"
                             loading="lazy"
                             decoding="async"
-                            onerror={`this.src='${FALLBACK_ICON}'`}
+                            data-fallback-src={FALLBACK_ICON}
                           />
                           <span class="armory-icon-ilvl">{item.itemLevel ?? '—'}</span>
                         </a>
@@ -770,7 +770,7 @@ function gearTitle(
                           class="armory-icon"
                           loading="lazy"
                           decoding="async"
-                          onerror={`this.src='${FALLBACK_ICON}'`}
+                          data-fallback-src={FALLBACK_ICON}
                         />
                         <span class="armory-icon-ilvl">{item.itemLevel ?? '—'}</span>
                       </a>
@@ -1517,14 +1517,14 @@ function gearTitle(
 <!-- Gear icons link to Wowhead; this is what turns those links into item tooltips
      (same setup as /raiders/gear-summary). The native title attribute on each icon
      stays as the fallback for when this script is blocked. -->
-<script is:inline>
+<script nonce={Astro.locals.cspNonce} is:inline>
   window.whTooltips = {
     colorLinks: true,
     iconizeLinks: false,
     renameLinks: false,
   };
 </script>
-<script is:inline src="https://wow.zamimg.com/js/tooltips.js"></script>
+<script nonce={Astro.locals.cspNonce} is:inline src="https://wow.zamimg.com/js/tooltips.js"></script>
 
 <script>
   document.addEventListener('click', (event) => {

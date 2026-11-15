@@ -147,7 +147,7 @@ function classFilterHref(classKey: string | null): string {
     <form class="encounter-picker" method="get">
       {selectedClassKey && <input type="hidden" name="class" value={selectedClassKey} />}
       <label for="encounter">Encounter</label>
-      <select id="encounter" name="encounter" onchange="this.form.submit()">
+      <select id="encounter" name="encounter" data-auto-submit>
         <option value="all" selected={data.selectedView === 'raid-all'}>All Raid Bosses</option>
         {data.availableEncounters.map((encounter) => (
           <option value={String(encounter.id)} selected={data.selectedView === 'encounter' && encounter.id === data.encounterId}>
@@ -193,7 +193,7 @@ function classFilterHref(classKey: string | null): string {
               <li>
                 <div class="icon-shell" aria-hidden="true">
                   {iconPrimary ? (
-                    <img src={iconPrimary} data-fallback={iconFallback ?? ''} alt="" loading="lazy" onerror="const fallback = this.dataset.fallback; if (fallback) { this.src = fallback; this.dataset.fallback = ''; return; } this.style.display='none'; const parent = this.parentElement; if (parent) { const span = document.createElement('span'); span.className = 'icon-fallback'; span.textContent = '?'; parent.appendChild(span); }" />
+                    <img src={iconPrimary} data-fallback-src={iconFallback ?? ""} data-fallback-mark alt="" loading="lazy" />
                   ) : (
                     <span class="icon-fallback">?</span>
                   )}

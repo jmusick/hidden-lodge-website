@@ -838,7 +838,7 @@ const getRaidMembers = (raidKey: string): DaySummarySignupRow[] => {
                                         <button
                                           type="submit"
                                           class:list={['btn-mini', { 'btn-bench-active': isBench }]}
-                                          onclick={isBench ? "return confirm('Clear bench override for this raider on this raid night?');" : undefined}
+                                          data-confirm={isBench ? "Clear bench override for this raider on this raid night?" : undefined}
                                         >
                                           {isBench ? 'Bench On' : 'Bench'}
                                         </button>
@@ -954,7 +954,7 @@ const getRaidMembers = (raidKey: string): DaySummarySignupRow[] => {
                                   name="attendance_status"
                                   value="late"
                                   class:list={['btn', 'btn-late']}
-                                  onclick="return validateLateSignup(this.form)"
+                                  data-validate-late
                                   title="If you're marked as late, please indicate when you expect to arrive."
                                 >
                                   Late
@@ -1042,7 +1042,7 @@ const getRaidMembers = (raidKey: string): DaySummarySignupRow[] => {
                               <div class="status-toggle-form">
                                 <button type="submit" name="attendance_status" value="coming" class="btn btn-sign">Signup</button>
                                 <button type="submit" name="attendance_status" value="tentative" class="btn btn-tentative">Tentative</button>
-                                <button type="submit" name="attendance_status" value="late" class="btn btn-late" onclick="return validateLateSignup(this.form)" title="If you're marked as late, please indicate when you expect to arrive.">Late</button>
+                                <button type="submit" name="attendance_status" value="late" class="btn btn-late" data-validate-late title="If you're marked as late, please indicate when you expect to arrive.">Late</button>
                                 <button type="submit" name="attendance_status" value="absent" class="btn btn-absent">Absent</button>
                               </div>
                               <label>
@@ -1172,8 +1172,11 @@ const getRaidMembers = (raidKey: string): DaySummarySignupRow[] => {
     }
   }
 
-  // Make functions available globally
-  (window as any).validateLateSignup = validateLateSignup;
+  // Late-signup buttons carry data-validate-late (no inline onclick under CSP).
+  document.addEventListener('click', (event) => {
+    const button = (event.target as Element | null)?.closest<HTMLButtonElement>('button[data-validate-late]');
+    if (button?.form && !validateLateSignup(button.form)) event.preventDefault();
+  });
 
   const sortableTables = document.querySelectorAll('.js-signups-table');
   sortableTables.forEach((table) => setupSignupsTable(table as HTMLTableElement));

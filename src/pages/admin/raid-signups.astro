@@ -357,7 +357,7 @@ function localSlotFromUtcSchedule(
                     <button type="submit" class="btn btn-primary">Save</button>
                   </form>
                 </details>
-                <form method="POST" action="/api/admin/raid-signups/delete-primary" onsubmit={`return confirm('Delete ${schedule.name}?')`}>
+                <form method="POST" action="/api/admin/raid-signups/delete-primary" data-confirm={`Delete ${schedule.name}?`}>
                   <input type="hidden" name="id" value={schedule.id} />
                   <button type="submit" class="btn btn-danger">Delete</button>
                 </form>
@@ -385,7 +385,7 @@ function localSlotFromUtcSchedule(
                 </p>
                 {raid.notes && <p class="item-notes">{raid.notes}</p>}
               </div>
-              <form method="POST" action="/api/admin/raid-signups/delete-adhoc" onsubmit={`return confirm('Delete ${raid.name}?')`}>
+              <form method="POST" action="/api/admin/raid-signups/delete-adhoc" data-confirm={`Delete ${raid.name}?`}>
                 <input type="hidden" name="id" value={raid.id} />
                 <button type="submit" class="btn btn-danger">Delete</button>
               </form>

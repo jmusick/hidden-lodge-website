@@ -45,5 +45,7 @@ declare namespace App {
 		isAdmin: boolean;
 		/** Rank 0–3 (includes admins). Unlocks the officer admin pages. */
 		isOfficer: boolean;
+		/** Per-request CSP nonce (src/lib/csp.ts); put it on every inline <script>. */
+		cspNonce: string;
 	}
 }

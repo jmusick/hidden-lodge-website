@@ -115,8 +115,8 @@ const isIndexable = !isNoindexPath(Astro.url.pathname);
 		<meta name="twitter:image" content="https://hidden-lodge.com/images/guild-banner.jpg" />
 		<title>{title}</title>
 		<!-- Google tag (gtag.js) -->
-		<script async is:inline src="https://www.googletagmanager.com/gtag/js?id=G-CZH1RY5ETP"></script>
-		<script is:inline>
+		<script async nonce={Astro.locals.cspNonce} is:inline src="https://www.googletagmanager.com/gtag/js?id=G-CZH1RY5ETP"></script>
+		<script nonce={Astro.locals.cspNonce} is:inline>
 			window.dataLayer = window.dataLayer || [];
 			function gtag(){window.dataLayer.push(arguments);}
 			gtag('js', new Date());
@@ -311,6 +311,10 @@ const isIndexable = !isNoindexPath(Astro.url.pathname);
 		</footer>
 	</body>
 </html>
+
+<script>
+	import '../scripts/ui-handlers';
+</script>
 
 <style>
 	:root {

@@ -298,7 +298,7 @@ function roleLabel(role: AssignedRole): string {
                 <form
                   method="POST"
                   action="/api/admin/roster-teams/delete-team"
-                  onsubmit={`return confirm('Delete team "${team.name}"?')`}
+                  data-confirm={`Delete team "${team.name}"?`}
                 >
                   <input type="hidden" name="id" value={team.id} />
                   <button type="submit" class="btn btn-danger">Delete Team</button>

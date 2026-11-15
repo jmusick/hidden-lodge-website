@@ -6,8 +6,9 @@
 // `public/_headers` repeats the same values for them: keep the two in sync when
 // changing anything here.
 //
-// Content-Security-Policy is deliberately not set here (tracked separately in
-// GitHub issue #18).
+// Content-Security-Policy is not set here: it needs a per-request nonce, so
+// src/lib/csp.ts builds it and src/middleware.ts applies it (Report-Only; see
+// AGENTS.md and GitHub issue #18).
 
 // Features the site never uses. Left out on purpose because the site relies on
 // them: clipboard-write (Raid Comp's "Export to Addon" copy button), and

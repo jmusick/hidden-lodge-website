@@ -176,12 +176,12 @@ const recruitmentHtml  = contentMap.get('recruitment')       || DEFAULT_RECRUITM
                   </div>
                   <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Save</button>
-                    <button type="button" class="btn btn-cancel" onclick="this.closest('details').removeAttribute('open')">Cancel</button>
+                    <button type="button" class="btn btn-cancel" data-close-details>Cancel</button>
                   </div>
                 </form>
               </details>
               <form method="POST" action="/api/admin/raiding/delete-addon" class="delete-form"
-                onsubmit={`return confirm('Remove addon "${addon.name}"?')`}>
+                data-confirm={`Remove addon "${addon.name}"?`}>
                 <input type="hidden" name="id" value={addon.id} />
                 <button type="submit" class="btn btn-danger btn-sm">Remove</button>
               </form>
@@ -246,9 +246,9 @@ const recruitmentHtml  = contentMap.get('recruitment')       || DEFAULT_RECRUITM
 <!-- Quill 2 from CDN -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" />
 
-<script is:inline src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
+<script nonce={Astro.locals.cspNonce} is:inline src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
 
-<script is:inline>
+<script nonce={Astro.locals.cspNonce} is:inline>
   (function () {
     const EDITOR_KEYS = ['schedule', 'raid_expectations', 'recruitment'];
 

@@ -9,6 +9,8 @@ import { getAllRaidersGear, wowheadItemUrl, type RaiderGearSummaryItem } from '.
 import { getRaidLogActivity, RECENT_LOG_WINDOW_DAYS } from '../../lib/raid-log-activity';
 
 const FALLBACK_ICON = 'https://wow.zamimg.com/images/wow/icons/large/inv_misc_questionmark.jpg';
+const cspNonce = Astro.locals.cspNonce;
+
 
 const GEAR_SLOT_ORDER = [
   'HEAD', 'NECK', 'SHOULDER', 'BACK', 'CHEST', 'WRIST', 'HANDS', 'WAIST', 'LEGS', 'FEET',
@@ -306,7 +308,7 @@ const rows = raiders.map((r) => {
                           class="gear-icon"
                           loading="lazy"
                           decoding="async"
-                          onerror={`this.src='${FALLBACK_ICON}'`}
+                          data-fallback-src={FALLBACK_ICON}
                         />
                         <span class="gear-icon-ilvl">{item.itemLevel ?? '—'}</span>
                         {item.isTierSet && (
@@ -351,14 +353,14 @@ const rows = raiders.map((r) => {
   </div>
 </Layout>
 
-<script is:inline>
+<script nonce={cspNonce} is:inline>
   window.whTooltips = {
     colorLinks: true,
     iconizeLinks: false,
     renameLinks: false,
   };
 </script>
-<script is:inline src="https://wow.zamimg.com/js/tooltips.js"></script>
+<script nonce={cspNonce} is:inline src="https://wow.zamimg.com/js/tooltips.js"></script>
 
 <script>
   const pageSizeSelect = document.querySelector<HTMLSelectElement>('#gear-page-size');

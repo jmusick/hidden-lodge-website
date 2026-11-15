@@ -48,6 +48,7 @@ const getInitials = (name: string) =>
     .map((part) => part[0]?.toUpperCase() ?? '')
     .join('')
     .slice(0, 2);
+const cspNonce = Astro.locals.cspNonce;
 ---
 
 <Layout title="The Hidden Lodge | Leadership" description="Meet the leadership team behind The Hidden Lodge.">
@@ -163,7 +164,7 @@ const getInitials = (name: string) =>
     }
   </section>
 
-  <script define:vars={{ dadJokes }}>
+  <script nonce={cspNonce} define:vars={{ dadJokes }}>
     const lightbox = document.getElementById('lightbox');
     const lightboxImg = document.getElementById('lightbox-img');
     const closeBtn = document.getElementById('lightbox-close');

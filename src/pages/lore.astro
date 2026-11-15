@@ -474,7 +474,7 @@ const selectedStoryBlocks: StoryBlock[] = selectedStory
 
           <form class="story-switcher" method="get" action="/lore">
             <label for="story-select">Jump to story</label>
-            <select id="story-select" name="story" onchange="this.form.submit()">
+            <select id="story-select" name="story" data-auto-submit>
               {
                 orderedStories.map((story) => (
                   <option value={story.id} selected={story.id === selectedStory.id}>

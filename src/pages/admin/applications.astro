@@ -559,7 +559,7 @@ const STATUS_LABELS: Record<string, string> = {
 	.btn-add-note:hover { background: rgba(90,180,255,0.18); }
 </style>
 
-<script is:inline>
+<script nonce={Astro.locals.cspNonce} is:inline>
 (function () {
 	// ── Expand / collapse ───────────────────────────────────────────
 	document.querySelectorAll('.app-summary').forEach(function (summary) {

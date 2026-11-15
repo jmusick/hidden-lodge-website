@@ -16,6 +16,11 @@ export default defineConfig({
 		driver: sessionDrivers.lruCache(),
 	},
 	vite: {
+		build: {
+			// Never inline hoisted <script> bundles into the HTML: Astro-generated inline
+			// scripts carry no nonce, so the Content-Security-Policy would block them.
+			assetsInlineLimit: 0,
+		},
 		server: {
 			allowedHosts: true,
 			port: 4321,

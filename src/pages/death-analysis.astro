@@ -303,14 +303,14 @@ const guildRankingsUrl = `https://www.warcraftlogs.com/guild/rankings/781707/lat
   </div>
 </Layout>
 
-<script is:inline>
+<script nonce={Astro.locals.cspNonce} is:inline>
   window.whTooltips = {
     colorLinks: true,
     iconizeLinks: false,
     renameLinks: false,
   };
 </script>
-<script is:inline src="https://wow.zamimg.com/js/tooltips.js"></script>
+<script nonce={Astro.locals.cspNonce} is:inline src="https://wow.zamimg.com/js/tooltips.js"></script>
 
 <script>
   // @ts-nocheck

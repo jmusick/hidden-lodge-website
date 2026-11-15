@@ -219,6 +219,7 @@ function getSlotOrder(slotLabel: string): number {
   };
   return order[slotLabel] ?? 999; // "Other" and unknown slots sorted last
 }
+const cspNonce = Astro.locals.cspNonce;
 ---
 
 <Layout title="Upgrades | The Hidden Lodge">
@@ -344,7 +345,7 @@ function getSlotOrder(slotLabel: string): number {
                               alt={itemDisplayName(item)}
                               class="item-icon"
                               loading="lazy"
-                              onerror={`this.src='${FALLBACK_ICON}'`}
+                              data-fallback-src={FALLBACK_ICON}
                             />
                             <a
                               href={wowheadUrl(item.itemId)}
@@ -399,7 +400,7 @@ function getSlotOrder(slotLabel: string): number {
   </div>
 </Layout>
 
-<script is:inline define:vars={{ allBosses, initialBossId, initialRaidSlug, hasBossData }}>
+<script nonce={cspNonce} is:inline define:vars={{ allBosses, initialBossId, initialRaidSlug, hasBossData }}>
   const itemsList = document.getElementById('items-list');
   const visibleCount = document.getElementById('upgrades-visible-count');
   const allItemCards = itemsList ? Array.from(itemsList.querySelectorAll('.item-card')) : [];
@@ -536,14 +537,14 @@ function getSlotOrder(slotLabel: string): number {
   applyFilters();
 </script>
 
-<script is:inline>
+<script nonce={Astro.locals.cspNonce} is:inline>
   window.whTooltips = {
     colorLinks: true,
     iconizeLinks: false,
     renameLinks: false,
   };
 </script>
-<script is:inline src="https://wow.zamimg.com/js/tooltips.js"></script>
+<script nonce={Astro.locals.cspNonce} is:inline src="https://wow.zamimg.com/js/tooltips.js"></script>
 
 <style>
   .upgrades-page {

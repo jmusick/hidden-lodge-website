@@ -1131,7 +1131,7 @@ const APP_STATUS_THEME: Record<string, string> = {
   }
 </style>
 
-<script is:inline>
+<script nonce={Astro.locals.cspNonce} is:inline>
 // ── US / OCE WoW realm list ────────────────────────────────────────────────
 const WOW_REALMS = [
   'Aegwynn', 'Aerie Peak', 'Agamaggan', 'Aggramar', 'Akama', 'Alexstrasza',

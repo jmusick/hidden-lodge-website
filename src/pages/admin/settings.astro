@@ -259,7 +259,7 @@ const simPurgeSummary = hasSimPurgeCounts
             method="POST"
             action="/api/admin/settings/purge-sim-data"
             class="danger-form"
-            onsubmit="return confirm('Purge all sim data? This cannot be undone.');"
+            data-confirm="Purge all sim data? This cannot be undone."
           >
             <button type="submit" class="danger-btn">Purge All Sim Data</button>
           </form>
